@@ -1,6 +1,6 @@
 # Jev Agent-First Install Kit
 
-[![CI](https://github.com/teo-nex/jew-codex-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/teo-nex/jew-codex-harness/actions/workflows/ci.yml)
+[![CI](https://github.com/teo-nex/jev-codex-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/teo-nex/jev-codex-harness/actions/workflows/ci.yml)
 
 This project lets a coding agent set up Jev routing for **Codex**. Jev can choose
 a model and reasoning depth for a task when you select `jev/auto`; you can still
@@ -13,7 +13,7 @@ an existing router. An agent may run inside Codex, Claude Code, Gemini CLI, or
 another coding environment, but the installed integration currently targets
 Codex only.
 
-The current source release is [v0.1.0-alpha.1](https://github.com/teo-nex/jew-codex-harness/releases/tag/v0.1.0-alpha.1).
+The current source release is [v0.1.0-alpha.1](https://github.com/teo-nex/jev-codex-harness/releases/tag/v0.1.0-alpha.1).
 See the [changelog](CHANGELOG.md) for routing changes and verification limits.
 
 ## Before you start
@@ -41,7 +41,7 @@ does not create an OmniRoute gateway or provider accounts.
 
 Send the agent the repository link and this request:
 
-> Install `https://github.com/teo-nex/jew-codex-harness` for a fresh Codex
+> Install `https://github.com/teo-nex/jev-codex-harness` for a fresh Codex
 > profile. Read `AGENT_INSTALL.md` and `AGENTS.md` first. Check my intended
 > profile, service ports, prerequisites, and disk space before changing anything.
 > Stop and tell me if migration of an existing profile or router is needed;
@@ -61,16 +61,16 @@ native session sharing on your behalf. Those steps require your review.
 On macOS or Linux:
 
 ```sh
-git clone https://github.com/teo-nex/jew-codex-harness.git
-cd jew-codex-harness
+git clone https://github.com/teo-nex/jev-codex-harness.git
+cd jev-codex-harness
 ./install.sh onboard
 ```
 
 On Windows, in PowerShell:
 
 ```powershell
-git clone https://github.com/teo-nex/jew-codex-harness.git
-Set-Location jew-codex-harness
+git clone https://github.com/teo-nex/jev-codex-harness.git
+Set-Location jev-codex-harness
 .\install.cmd onboard
 ```
 
@@ -126,7 +126,7 @@ separate checks in a client that exposes those capabilities.
   paid, subscription savings, or equal task quality.
 
 The [support matrix](docs/SUPPORT.md) shows what has and has not been tested on
-each operating system. [GitHub Actions](https://github.com/teo-nex/jew-codex-harness/actions/workflows/ci.yml)
+each operating system. [GitHub Actions](https://github.com/teo-nex/jev-codex-harness/actions/workflows/ci.yml)
 runs offline installation checks with synthetic credentials on all three. CI
 does not prove a first installation with your credentials, hook trust, OAuth,
 or a completed live model response.
