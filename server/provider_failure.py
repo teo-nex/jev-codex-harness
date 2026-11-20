@@ -17,12 +17,14 @@ def classify_failure(status, quota_hit=False, body=None, attempt=None):
         category, seconds, retry = "client_disconnected", 0, False
     elif phase in ("total", "max_attempts"):
         category, seconds, retry = "budget_exhausted", 0, False
+    elif status == 404 or (status in (400, 403) and code in (
+        "model_not_found", "model_not_supported", "model_unavailable", "unsupported_model"
+    )):
+        category, seconds, retry = "model_unavailable", 300, True
     elif status in (400, 413, 422) and not quota_hit:
         category, seconds, retry = "bad_request", 0, False
     elif status in (401, 403):
         category, seconds, retry = "auth", 900, True
-    elif status == 404:
-        category, seconds, retry = "model_unavailable", 300, True
     elif status == 429 and code in ("rate_limit_exceeded", "rate_limit", "too_many_requests"):
         category, seconds, retry = "rate_limit", 30, True
     elif quota_hit or status in (402, 429):

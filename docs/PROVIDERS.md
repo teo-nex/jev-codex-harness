@@ -21,8 +21,8 @@ identifiers; they are labels, not predefined provider names. Each entry has:
 - `id`: your route label.
 - `transport`: `omniroute` (default) or `native` (the bundled Codex router).
 - `model`: one exact destination ID for every Jev decision; or `models`: a
-  complete mapping from `gpt-6-luna`, `gpt-6.1-terra`, `gpt-6.1-sol` and
-  `gpt-6-astra` to exact destination IDs. Do not supply both fields.
+  complete mapping from `gpt-6-luna`, `gpt-6.1-terra`, `gpt-6.2-sol` and
+  `gpt-6.2-astra` to exact destination IDs. Do not supply both fields.
 - `connection_ids`: optional ordered list of 1-32 unique OmniRoute account IDs.
   Omitting it lets the existing gateway choose the connection. Native routes
   cannot specify external account IDs.
@@ -44,10 +44,13 @@ gateway ID or Sol destination is invented. Add an exact Terra destination or
 an unpinned native entry to make Terra routable through that configuration.
 Mappings may retain a `gpt-5.6-terra` key for compatibility;
 validation ignores that retired entry.
-Sol mapping keys must use `gpt-6.1-sol`; the retired `gpt-6-sol` key is rejected,
-so an old gateway destination is never silently reused for the new model.
-The legacy Plus adapter preserves the selected exact native model ID instead
-of rewriting Luna 6 or Sol 6.1 to an older model alias. Effort remains a payload field.
+Mappings with `gpt-6.1-sol` and `gpt-6-astra` still load. Add explicit
+`gpt-6.2-sol` and `gpt-6.2-astra` destinations to use those models on a mapped
+provider. For unmapped tiers the ladder continues to the next eligible entry,
+such as an unpinned native route. If the eligible inventory has no Sol 6.2
+route, it uses an explicitly configured Sol 6.1 mapping. Final Astra reviews
+still require an exact native Astra 6.2 route.
+The legacy Plus adapter sends the selected exact model ID, with effort in the payload.
 Legacy ladders hand Terra 6.1 directly to the native transport, as they do Astra;
 version 2 is required to configure an explicit external Terra mapping.
 
@@ -56,10 +59,13 @@ version 2 is required to configure an explicit external Terra mapping.
 Failures before output exposure try account IDs, then providers, in the supplied
 order. The working account/provider stays selected for that thread across
 requests and server restarts. No attempt can advance a newer route with a stale
-failure receipt. Exhausting the primary opens a shared cooldown; parked threads
-probe it again after the reset time, retaining their previous fallback if the
-probe fails. Without a usable reset header, cooldowns are bounded: normally 30
-seconds, 300 for quota failures, and 900 for HTTP 400/401/403.
+failure receipt. The first eligible route can recover after its cooldown even
+when a later route is healthy. Model availability errors cool down the failed
+destination. Quota and authentication failures can cool down the account.
+Parked threads probe again after the reset time and retain their previous
+fallback if the probe fails. Without a usable reset header, the usual cooldowns
+are 30 seconds for rate limits or transient failures, 300 for quota or model
+availability, and 900 for authentication failures.
 Recovery probes happen only at the start of a new request; slow fallbacks cannot
 restart the sequence partway through the same request.
 
@@ -127,7 +133,7 @@ classifier. `no_paid_fallback` excludes external routes with `billing: "paid"`
 or unknown billing; `billing: "free"` and `"subscription"` are operator
 declarations, not billing verification. Actual native subscription limits remain.
 
-The opt-in `require_astra_final` override requires exact native `gpt-6-astra`
+The opt-in `require_astra_final` override requires exact native `gpt-6.2-astra`
 when Jev selects specialist/heavy work (`astra_policy: "astra"`) or the caller
 sets `metadata.jev_phase: "final_review"`.
 There is no cheaper fallback if that route is absent/unavailable. Semantic

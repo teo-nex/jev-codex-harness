@@ -374,16 +374,27 @@ class PerCallEndToEnd(unittest.TestCase):
             [record["decision_source"] for record in self.records], ["jev", "jev"]
         )
 
-    def test_manual_astra_effort_keeps_configuration_update_support(self):
+    def test_legacy_astra_effort_keeps_configuration_update_support(self):
         history = [message("user", "perform the final security review")]
         forwarded = payload_for(list(history), reasoning={"effort": "low"})
         update, transport = jev.apply_route_payload(
-            forwarded, jev.ASTRA, "high", {"effort": "low"})
-        self.assertEqual(forwarded["model"], jev.ASTRA)
+            forwarded, "gpt-6-astra", "high", {"effort": "low"})
+        self.assertEqual(forwarded["model"], "gpt-6-astra")
         self.assertEqual(forwarded["reasoning"]["effort"], "low")
         self.assertEqual(update, {"type": "configuration_update", "reasoning": {"effort": "high"}})
         self.assertEqual(forwarded["input"][1:], history)
         self.assertEqual(transport, "configuration_update")
+
+    def test_astra62_uses_request_effort_and_preserves_history(self):
+        history = [message("user", "perform the final review")]
+        forwarded = payload_for(list(history), reasoning={"effort": "low"})
+        update, transport = jev.apply_route_payload(
+            forwarded, jev.ASTRA, "high", {"effort": "low"})
+        self.assertEqual(forwarded["model"], "gpt-6.2-astra")
+        self.assertEqual(forwarded["reasoning"], {"effort": "high"})
+        self.assertEqual(forwarded["input"], history)
+        self.assertIsNone(update)
+        self.assertEqual(transport, "request")
 
     def test_next_decision_sees_successful_models_as_cache_affinity(self):
         opening = [message("user", "implement the bounded change")]

@@ -2,7 +2,7 @@
 
 The default `jev-workers` backend uses the Codex CLI on macOS, Linux and
 Windows. CanvasTTY is not required for coding tasks.
-Workers keep `jev/auto`: Sol 6.1 handles hard tasks, Terra 6.1 is the default
+Workers keep `jev/auto`: Sol 6.2 handles hard tasks, Terra 6.1 is the default
 for ordinary implementation/tests/tools, and Luna handles only tiny functions
 or simple edits. Astra remains manual-only. Do not pin a model in a `jev-workers` submission to bypass its configured
 provider sequence. A fixed provider destination still overrides the native tier;

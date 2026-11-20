@@ -3,7 +3,7 @@
 from .client import task_classification
 
 LUNA = "gpt-6-luna"
-ORCHESTRATOR = "gpt-6.1-sol"
+ORCHESTRATOR = "gpt-6.2-sol"
 MIN_LUNA_CONFIDENCE = 0.90
 
 

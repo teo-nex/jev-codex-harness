@@ -130,7 +130,7 @@ class OnboardTests(unittest.TestCase):
         self.assertEqual(install.call_args.args[2], path)
         self.assertEqual(config["providers"][0]["model"], "wally/glm")
         self.assertEqual(config["reasoning_profiles"]["wally/glm"]["supported_efforts"], ["low", "high"])
-        self.assertEqual(config["providers"][1]["models"]["gpt-6-astra"], "gpt-6-astra")
+        self.assertEqual(config["providers"][1]["models"]["gpt-6.2-astra"], "gpt-6.2-astra")
         if os.name != "nt":
             self.assertEqual(path.stat().st_mode & 0o777, 0o600)
 

@@ -20,7 +20,7 @@ desktop or terminal UI acceptance.
 
 Automatic capability routing has three tiers, in descending capability order:
 
-- `gpt-6.1-sol` for hard tasks: difficult debugging, ambiguous goals, open-ended
+- `gpt-6.2-sol` for hard tasks: difficult debugging, ambiguous goals, open-ended
   design, complex integration and consequential reviews.
 - `gpt-6.1-terra` is the default for most ordinary work: implementation across
   functions/files, tests, routine debugging, refactoring, tools and writing.
@@ -32,18 +32,19 @@ an independent choice. Uncertain Luna decisions promote to Sol/high. For Terra,
 a validated distribution with at most 10% Sol probability can retain Terra even
 when the uncertainty is between Terra and Luna; otherwise uncertain capability
 or hard-task classification promotes to Sol/high.
-Astra is excluded from the automatic model choices and remains available only
-through manual selection or an explicitly configured operator override such as
+Select `gpt-6.2-astra` manually or through an explicit operator override such as
 `require_astra_final`. The legacy decision field `astra_policy` is retained for
 log/project compatibility: its `astra` category now selects Sol (`sol_hard`),
 never Astra. Classifier failures, routing-off/shadow baselines and native-only
 project transport retain their safe Sol defaults.
-Sol always means `gpt-6.1-sol` in automatic routing; `gpt-6-sol` is retired.
+Use Codex CLI 0.166.0 or later for the two GPT-6.2 models. Native model
+availability follows the signed-in Codex account catalog.
 Terra always means `gpt-6.1-terra`; `gpt-5.6-terra` remains historical only.
 Automatic routing keeps the shared `low`/`medium`/`high`/`xhigh`/`max` ladder.
-Terra's additional `none` setting is not an automatic routing choice.
-Historical cost reports retain their exact old model IDs and price cards;
-Sol 6.1 usage is counted as unpriced until its own rate card is verified.
+Manual reasoning options, including `ultra` where available, come from the
+native catalog.
+API-equivalent reports use published GPT-6.2 rates. Historical baselines retain
+their old model IDs and price cards. The reports count Sol 6.1 usage as unpriced.
 Terra 6.1 uses its [own API card](https://developers.openai.com/api/docs/models/gpt-6.1-terra)
 in API-equivalent reports; its ChatGPT credit usage remains unpriced.
 

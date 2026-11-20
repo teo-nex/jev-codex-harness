@@ -42,6 +42,15 @@ class PortableReportPathTests(unittest.TestCase):
                                       "output_tokens": 1000}, rate)
         self.assertEqual(str(long["low"]), "0.6075")
 
+    def test_gpt62_api_prices_are_distinct_from_historical_baselines(self):
+        usage = {"input_tokens": 1000, "cached_input_tokens": 500, "output_tokens": 10}
+        for model, expected in (("native/gpt-6.2-sol-high", "0.00115"),
+                                ("gpt-6.2-astra", "0.004600")):
+            with self.subTest(model=model):
+                rate = api_cost.rate_for(model, None, {})
+                self.assertEqual(api_cost.price_attempt(usage, rate)["low"],
+                                 api_cost.D(expected))
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

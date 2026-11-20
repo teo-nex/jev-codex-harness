@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Use GPT-6.2 Sol for hard work in `jev/auto` and GPT-6.2 Astra for explicit
+  final-review overrides. The native model picker follows the Codex account
+  catalog. Legacy Sol mappings remain usable where no Sol 6.2 route is configured.
+- Scope legacy Plus model failures to the unavailable model, classify typed
+  model errors separately from request and authentication failures, and recover
+  the first eligible route after its cooldown.
+
 - Reload the owned idle base router after registering `jev/auto`, so a fresh
   installation does not advertise a model that the running process cannot route.
 

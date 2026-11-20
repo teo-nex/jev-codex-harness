@@ -12,16 +12,32 @@ try:
     from .reasoning_effort import validate_reasoning_profiles
     from .project_policy import validate_project_fields
     from .request_budget import validate_budget
+    from .routing_policy import ASTRA, LUNA, SOL, TERRA, TIERS
 except ImportError:  # launched as a script from server/
     from portable_lock import locked_file
     from reasoning_effort import validate_reasoning_profiles
     from project_policy import validate_project_fields
     from request_budget import validate_budget
+    from routing_policy import ASTRA, LUNA, SOL, TERRA, TIERS
 
 STAGES = ("plus", "gemini", "opus", "glm", "deepseek", "wally", "main", "exhausted")
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
-NATIVE_MODELS = ("gpt-6-luna", "gpt-6.1-terra", "gpt-6.1-sol", "gpt-6-astra")
-LEGACY_NATIVE_MODELS = set(NATIVE_MODELS) - {"gpt-6.1-terra"}
+NATIVE_MODELS = TIERS
+LEGACY_SOL, LEGACY_ASTRA = "gpt-6.1-sol", "gpt-6-astra"
+SUPPORTED_NATIVE_MODELS = (*NATIVE_MODELS, LEGACY_SOL, LEGACY_ASTRA)
+LEGACY_NATIVE_ONLY = (TERRA, ASTRA, LEGACY_ASTRA)
+
+
+def _valid_model_mapping(models):
+    if not isinstance(models, dict):
+        return False
+    keys = set(models) - {"gpt-5.6-terra"}
+    return (keys <= set(SUPPORTED_NATIVE_MODELS)
+            and LUNA in keys
+            and bool(keys & {SOL, LEGACY_SOL})
+            and bool(keys & {ASTRA, LEGACY_ASTRA})
+            and all(isinstance(model, str) and model and model == model.strip()
+                    for model in models.values()))
 
 
 def validate_ordered_config(value):
@@ -55,10 +71,8 @@ def validate_ordered_config(value):
         if "model" in provider and (not isinstance(model, str) or not model.strip() or model != model.strip()):
             raise ValueError("Provider model must be an exact non-empty model ID")
         if "models" in provider:
-            # Preserve complete pre-Terra mappings without inventing a destination.
-            if (not isinstance(models, dict) or (set(models) - {"gpt-5.6-terra"}) not in
-                    (set(NATIVE_MODELS), LEGACY_NATIVE_MODELS)
-                    or any(not isinstance(m, str) or not m.strip() or m != m.strip() for m in models.values())):
+            # Preserve exact legacy destinations without inferring new ones.
+            if not _valid_model_mapping(models):
                 raise ValueError("Provider models must map every Jev native model to an exact model ID")
         if model is None and models is None and transport != "native":
             raise ValueError("OmniRoute provider needs model or models")
@@ -71,7 +85,7 @@ def validate_ordered_config(value):
             raise ValueError("connection_ids must be unique non-empty IDs for an OmniRoute provider")
         entry = {**provider, "transport": transport}
         if models is not None:
-            entry["models"] = {tier: models[tier] for tier in NATIVE_MODELS if tier in models}
+            entry["models"] = {tier: models[tier] for tier in SUPPORTED_NATIVE_MODELS if tier in models}
         if "connection_ids" in provider:
             entry["connection_ids"] = list(accounts)
         result.append(entry)
@@ -123,7 +137,7 @@ def validate_config(value):
 
 
 def plus_model(tier, effort):
-    if tier not in NATIVE_MODELS or effort not in EFFORTS:
+    if tier not in SUPPORTED_NATIVE_MODELS or effort not in EFFORTS:
         raise ValueError("Invalid Plus model or reasoning effort")
     # Preserve the selected generation; effort travels in the payload. An
     # unsupported exact model may fail over, but must never become a 5.6 alias.
@@ -163,16 +177,32 @@ class Ladder:
                 self._save(value)
             return result
 
+    def _legacy_model_keys(self, scope, tier):
+        account = self.config["plus_connection_id"]
+        model = hashlib.sha256(json.dumps([account, tier]).encode()).hexdigest()
+        thread = hashlib.sha256(json.dumps([scope, model]).encode()).hexdigest()
+        return "_legacy_plus_model:" + model, "_legacy_model_scope:" + thread
+
     def route(self, scope, tier, effort, *, recover_primary=True):
         if not isinstance(scope, str) or not scope:
             raise ValueError("stable thread scope required")
         if self.providers is not None:
             return self._ordered_route(scope, tier, effort, recover_primary)
-        if tier in ("gpt-6-astra", "gpt-6.1-terra"):
+        if tier in LEGACY_NATIVE_ONLY:
             return self.native_route(tier, effort)
+        model_key, model_scope = self._legacy_model_keys(scope, tier)
+
         def operation(state):
-            thread = state.setdefault(scope, {"stage": "plus", "gemini_index": 0})
             now = time.time()
+            model_until = state.get(model_key, 0)
+            if type(model_until) not in (int, float) or not math.isfinite(model_until):
+                raise ValueError("Invalid legacy Plus model cooldown")
+            # Keep the shared thread cursor for account-wide failures. Only
+            # a model-specific fallback needs a separate cursor.
+            model_fallback = model_scope in state or model_until > now
+            thread_scope = model_scope if model_fallback else scope
+            initial = state.get(scope, {"stage": "plus", "gemini_index": 0})
+            thread = state.setdefault(thread_scope, dict(initial))
             thread["seen_at"] = int(now)
             stage = thread.get("stage")
             if stage not in STAGES:
@@ -183,7 +213,10 @@ class Ladder:
                 stage = thread["stage"] = "main"
             circuit = state.get("_plus_circuit")
             circuit_until = circuit.get("until") if isinstance(circuit, dict) else None
-            if not isinstance(circuit_until, (int, float)) or circuit_until <= now:
+            if not isinstance(circuit_until, (int, float)) or circuit.get("reason") == "model_unavailable":
+                circuit_until = 0
+            circuit_until = max(circuit_until, model_until)
+            if circuit_until <= now:
                 circuit_until = None
             retry_at = thread.get("plus_retry_at")
             if recover_primary and stage != "plus" and isinstance(retry_at, (int, float)) and now >= retry_at:
@@ -221,7 +254,8 @@ class Ladder:
                 stage = "exhausted"
                 model = account = None
             return {"stage": stage, "model": model, "account": account,
-                    "gemini_index": index, "opus_index": opus_index, "effort": effort}, True
+                    "gemini_index": index, "opus_index": opus_index, "effort": effort,
+                    "selected_tier": tier, "model_fallback": model_fallback}, True
         return self._with_state(operation)
 
     def advance(self, scope, route, reason, reset_at=None, cooldown_seconds=900):
@@ -230,8 +264,11 @@ class Ladder:
             raise ValueError("unsupported fallback reason")
         if self.providers is not None:
             return self._ordered_advance(scope, route, reason, reset_at, cooldown_seconds)
+        model_key, model_scope = self._legacy_model_keys(scope, route.get("selected_tier"))
+        thread_scope = model_scope if route.get("model_fallback") else scope
+
         def operation(state):
-            thread = state.get(scope)
+            thread = state.get(thread_scope)
             if not isinstance(thread, dict) or thread.get("stage") != route.get("stage"):
                 return False, False
             if route.get("stage") in ("gemini", "opus"):
@@ -257,8 +294,12 @@ class Ladder:
                 if not next_stage or (route.get("stage") == "plus" and route.get("account") != self.config["plus_connection_id"]):
                     return False, False
                 if route.get("stage") == "plus":
-                    next_stage = thread.pop("resume_stage", None) or "gemini"
                     now = time.time()
+                    if reason == "model_unavailable" and thread_scope == scope:
+                        if model_scope in state:
+                            return False, False
+                        thread = state[model_scope] = dict(thread)
+                    next_stage = thread.pop("resume_stage", None) or "gemini"
                     # Missing reset headers are common on compatible gateways.
                     # A bounded periodic probe allows Plus to recover without
                     # pinning the thread to a fallback for its whole lifetime.
@@ -267,7 +308,10 @@ class Ladder:
                         else now + max(30, min(int(cooldown_seconds), 3600))
                     )
                     thread["plus_retry_at"] = until
-                    state["_plus_circuit"] = {"until": until, "reason": reason}
+                    if reason == "model_unavailable":
+                        state[model_key] = until
+                    else:
+                        state["_plus_circuit"] = {"until": until, "reason": reason}
                 if route.get("stage") == "wally":
                     thread["wally_seen"] = True
                 thread["stage"] = next_stage
@@ -282,11 +326,21 @@ class Ladder:
             return self._ordered_success(scope, route)
         if route.get("stage") != "plus":
             return
+        model_key, model_scope = self._legacy_model_keys(scope, route.get("selected_tier"))
+        thread_scope = model_scope if route.get("model_fallback") else scope
+
         def operation(state):
-            if isinstance(state.get(scope), dict) and state[scope].get("stage") == "plus":
-                removed = state.pop("_plus_circuit", None) is not None
-                return removed, removed
-            return False, False
+            thread = state.get(thread_scope)
+            if not isinstance(thread, dict) or thread.get("stage") != "plus":
+                return False, False
+            if thread_scope == scope and model_scope in state:
+                return False, False
+            shared = state.pop("_plus_circuit", None)
+            specific = state.pop(model_key, None)
+            if thread_scope == model_scope:
+                state.pop(model_scope)
+            changed = shared is not None or specific is not None or thread_scope == model_scope
+            return changed, changed
         return self._with_state(operation)
 
     @property
@@ -297,12 +351,14 @@ class Ladder:
 
     def native_route(self, tier, effort, *, excluded=()):
         if self.providers is None:
-            choice = {"stage": "main", "model": tier if tier in ("gpt-6-astra", "gpt-6.1-terra") else self.config["main_model"], "account": None,
+            choice = {"stage": "main", "model": tier if tier in LEGACY_NATIVE_ONLY else self.config["main_model"], "account": None,
                       "effort": effort, "transport": "native"}
             return None if (choice["model"], choice["account"]) in excluded else choice
+        destination_tier = self._ordered_tier(tier, native_only=True)
         for index, provider in enumerate(self.providers):
-            if provider["transport"] == "native" and self._supports_tier(provider, tier):
-                choice = self._ordered_choice(index, 0, tier, effort)
+            if provider["transport"] == "native" and self._supports_tier(provider, destination_tier):
+                choice = self._ordered_choice(index, 0, destination_tier, effort)
+                choice["selected_tier"] = tier
                 if (choice["model"], choice["account"]) not in excluded:
                     return choice
         return None
@@ -310,6 +366,16 @@ class Ladder:
     @staticmethod
     def _supports_tier(provider, tier):
         return "models" not in provider or tier in provider["models"]
+
+    def _ordered_tier(self, tier, *, native_only=False):
+        # A legacy Sol mapping preserves its exact destination only when the
+        # eligible inventory has no route for the current tier. Astra stays exact.
+        if tier == SOL and not any(
+            self._supports_tier(provider, SOL) and (not native_only or provider["transport"] == "native")
+            for provider in self.providers
+        ):
+            return LEGACY_SOL
+        return tier
 
     def _ordered_choice(self, index, account_index, tier, effort):
         if index >= len(self.providers):
@@ -368,13 +434,20 @@ class Ladder:
         return scope
 
     def _ordered_route(self, scope, tier, effort, recover_primary):
-        if tier not in NATIVE_MODELS or effort not in EFFORTS:
+        if tier not in SUPPORTED_NATIVE_MODELS or effort not in EFFORTS:
             raise ValueError("Invalid Jev model or reasoning effort")
         scope = self._ordered_scope(scope, tier)
+        selected_tier = tier
+        tier = self._ordered_tier(tier)
+        primary = next((i for i, provider in enumerate(self.providers)
+                        if self._supports_tier(provider, tier)), None)
+        if primary is None:
+            return self._ordered_choice(len(self.providers), 0, tier, effort)
+
         def operation(state):
             thread = state.get(scope)
             if not isinstance(thread, dict) or thread.get("config_hash") != self.fingerprint:
-                thread = state[scope] = {"config_hash": self.fingerprint, "provider_index": 0, "account_index": 0}
+                thread = state[scope] = {"config_hash": self.fingerprint, "provider_index": primary, "account_index": 0}
             index, account = thread.get("provider_index"), thread.get("account_index")
             if not self._ordered_position_valid(index, account):
                 raise ValueError("Invalid ordered provider state")
@@ -386,6 +459,8 @@ class Ladder:
                     or (resume is not None and (not isinstance(resume, (list, tuple)) or len(resume) != 2
                         or not self._ordered_position_valid(*resume) or resume[0] == 0))):
                 raise ValueError("Invalid ordered provider recovery state")
+            if resume is not None and resume[0] <= primary:
+                thread.pop("resume_route")
             now = time.time()
             circuit = state.get("_ordered_primary_circuit", {})
             if not isinstance(circuit, dict):
@@ -397,14 +472,14 @@ class Ladder:
             # state. The last primary circuit may belong to another model, or
             # have been cleared by that model's successful request.
             entries = self._cooldowns(state)
-            until = min(self._slot_until(entries, self._ordered_choice(0, slot, tier, effort))
-                        for slot in range(max(1, len(self.providers[0].get("connection_ids", [])))))
-            if recover_primary and index > 0 and retry_at is not None and now >= retry_at and now >= until:
+            until = min(self._slot_until(entries, self._ordered_choice(primary, slot, tier, effort))
+                        for slot in range(max(1, len(self.providers[primary].get("connection_ids", [])))))
+            if recover_primary and index > primary and retry_at is not None and now >= retry_at and now >= until:
                 thread["resume_route"] = (index, account)
-                index = account = 0
+                index, account = primary, 0
                 thread.pop("primary_retry_at", None)
-            elif index == 0 and now < until:
-                index, account = thread.pop("resume_route", (1, 0))
+            elif index == primary and now < until:
+                index, account = thread.pop("resume_route", (primary + 1, 0))
                 thread["primary_retry_at"] = until
             if index == len(self.providers) and recover_primary:
                 # Retry any recovered route after complete exhaustion, not only
@@ -433,6 +508,8 @@ class Ladder:
                 thread["generation"] = thread.get("generation", 0) + 1
             thread.update(provider_index=index, account_index=account, seen_at=int(now))
             chosen = self._ordered_choice(index, account, tier, effort)
+            chosen["selected_tier"] = selected_tier
+            chosen["primary_index"] = primary
             chosen["generation"] = thread.get("generation", 0)
             return chosen, True
         return self._with_state(operation)
@@ -461,15 +538,17 @@ class Ladder:
             entries[self._cooldown_key(route, reason)] = {"until": until, "reason": reason}
             account += 1
             if account >= max(1, len(accounts)):
-                if index == 0:
-                    until = min(self._slot_until(entries, self._ordered_choice(0, slot,
-                                       route["selected_tier"], route["effort"]))
+                if index == route["primary_index"]:
+                    tier = self._ordered_tier(route["selected_tier"])
+                    until = min(self._slot_until(entries, self._ordered_choice(index, slot,
+                                       tier, route["effort"]))
                                 for slot in range(max(1, len(accounts))))
                     state["_ordered_primary_circuit"] = {"config_hash": self.fingerprint, "until": until}
                     thread["primary_retry_at"] = until
-                    index, account = thread.pop("resume_route", (1, 0))
+                    fallback = (index + 1, 0)
+                    index, account = thread.pop("resume_route", fallback)
                     if index >= len(self.providers):
-                        index, account = 1, 0
+                        index, account = fallback
                 else:
                     index, account = index + 1, 0
             thread.update(provider_index=index, account_index=account,
@@ -488,7 +567,7 @@ class Ladder:
                     or (thread.get("provider_index"), thread.get("account_index")) !=
                        (route.get("provider_index"), route.get("account_index"))):
                 return False, False
-            if route["provider_index"] == 0:
+            if route["provider_index"] == route["primary_index"]:
                 thread.pop("resume_route", None)
                 state.pop("_ordered_primary_circuit", None)
             entries = self._cooldowns(state)

@@ -27,6 +27,15 @@ class FailureTests(unittest.TestCase):
         self.assertEqual(classify_failure(429, body=b'{"error":{"code":"rate_limit"}}')["class"], "rate_limit")
         self.assertFalse(classify_failure(504, attempt={"timeout_phase": "total"})["retryable"])
 
+    def test_typed_model_error_is_retryable_without_disabling_the_account(self):
+        for status in (400, 403, 404):
+            with self.subTest(status=status):
+                result = classify_failure(status, body=b'{"error":{"code":"model_not_supported"}}')
+                self.assertEqual(result["class"], "model_unavailable")
+                self.assertTrue(result["retryable"])
+        result = classify_failure(403, body=b'{"error":{"code":"invalid_api_key"}}')
+        self.assertEqual(result["class"], "auth")
+
     def test_account_auth_cooldown_is_shared_but_other_account_and_route_stay_healthy(self):
         with tempfile.TemporaryDirectory() as root:
             ladder = Ladder(CONFIG, Path(root) / "state.json")

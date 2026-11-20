@@ -76,6 +76,49 @@ class OrderedLadderTests(unittest.TestCase):
         self.assertEqual(ladder.route("no-guess", jev.SOL, "high", recover_primary=False)["model"],
                          "gateway/" + jev.SOL)
 
+    def test_legacy_mapping_keeps_exact_destinations_and_skips_new_tiers(self):
+        models = {jev.LUNA: "gateway/luna", jev.TERRA: "gateway/terra",
+                  "gpt-6.1-sol": "gateway/old-sol", "gpt-6-astra": "gateway/old-astra"}
+        config = {"providers": [{"id": "mapped", "models": models},
+                                {"id": "native", "transport": "native"}]}
+        ladder = Ladder(config, self.path)
+        for model in (jev.SOL, jev.ASTRA):
+            route = ladder.route("same", model, "high")
+            self.assertEqual((route["stage"], route["model"], route["effort"]),
+                             ("native", model, "high"))
+        for model, destination in models.items():
+            self.assertEqual(ladder.route("same", model, "high")["model"], destination)
+
+    def test_legacy_only_config_serves_its_explicit_sol_destination(self):
+        models = {jev.LUNA: "gateway/luna", "gpt-6.1-sol": "gateway/old-sol",
+                  "gpt-6-astra": "gateway/old-astra"}
+        config = {"providers": [{"id": "legacy", "models": models}]}
+        ladder = Ladder(config, self.path)
+        choice = ladder.route("same", jev.SOL, "high")
+        self.assertEqual((choice["stage"], choice["model"], choice["selected_tier"]),
+                         ("legacy", "gateway/old-sol", jev.SOL))
+        self.assertTrue(ladder.note_success("same", choice))
+        self.assertEqual(ladder.route("same", jev.ASTRA, "high")["stage"], "exhausted")
+        self.assertEqual(ladder.route("same", jev.TERRA, "high")["stage"], "exhausted")
+
+    def test_first_eligible_provider_recovers_while_secondary_is_healthy(self):
+        legacy = {jev.LUNA: "gateway/luna", "gpt-6.1-sol": "gateway/old-sol",
+                  "gpt-6-astra": "gateway/old-astra"}
+        ladder = Ladder({"providers": [{"id": "legacy", "models": legacy},
+                                       {"id": "primary", "transport": "native"},
+                                       {"id": "secondary", "model": "gateway/fallback"}]}, self.path)
+        with mock.patch("provider_ladder.time.time", return_value=1000):
+            failed = ladder.route("scope", jev.SOL, "high")
+            self.assertEqual((failed["stage"], failed["model"]), ("primary", jev.SOL))
+            self.assertTrue(ladder.advance("scope", failed, "model_unavailable", cooldown_seconds=60))
+            for scope in ("scope", "fresh"):
+                self.assertEqual(ladder.route(scope, jev.SOL, "high")["stage"], "secondary")
+        with mock.patch("provider_ladder.time.time", return_value=1061):
+            for scope in ("scope", "fresh"):
+                recovered = ladder.route(scope, jev.SOL, "high")
+                self.assertEqual((recovered["stage"], recovered["model"]), ("primary", jev.SOL))
+                self.assertTrue(ladder.note_success(scope, recovered))
+
     def test_terra_mapping_skip_keeps_failure_receipts_and_cooldowns_valid(self):
         models = {m: "gateway/" + m for m in NATIVE_MODELS if m != jev.TERRA}
         config = {"providers": [{"id": "mapped", "models": models},
@@ -133,8 +176,8 @@ class OrderedLadderTests(unittest.TestCase):
         self.assertEqual(ladder.route("thread", "gpt-6.1-sol", "high")["account"], "a1")
         mapped = {"providers": [{"id": "mapped", "models": {m: "gateway/" + m for m in NATIVE_MODELS}}]}
         ladder = Ladder(mapped, self.path)
-        mapped["providers"][0]["models"]["gpt-6.1-sol"] = "unexpected"
-        self.assertEqual(ladder.route("thread", "gpt-6.1-sol", "high")["model"], "gateway/gpt-6.1-sol")
+        mapped["providers"][0]["models"]["gpt-6.2-sol"] = "unexpected"
+        self.assertEqual(ladder.route("thread", "gpt-6.2-sol", "high")["model"], "gateway/gpt-6.2-sol")
 
     def test_retired_terra_mapping_is_accepted_but_never_an_active_tier(self):
         models = {model: "gateway/" + model for model in NATIVE_MODELS}
@@ -151,7 +194,7 @@ class OrderedLadderTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ladder.route("thread", "gpt-6-sol", "medium")
         models = {model: "gateway/" + model for model in NATIVE_MODELS}
-        models["gpt-6-sol"] = models.pop("gpt-6.1-sol")
+        models["gpt-6-sol"] = models.pop("gpt-6.2-sol")
         with self.assertRaises(ValueError):
             validate_config({"providers": [{"id": "mapped", "models": models}]})
 
@@ -229,11 +272,11 @@ class OrderedLadderTests(unittest.TestCase):
             with self.subTest(invalid=invalid):
                 self.path.write_text(json.dumps({ladder._ordered_scope("thread", jev.SOL): {**initial, **invalid}}))
                 with self.assertRaises(ValueError):
-                    ladder.route("thread", "gpt-6.1-sol", "high")
+                    ladder.route("thread", "gpt-6.2-sol", "high")
         for circuit in ([], {"config_hash": ladder.fingerprint, "until": "tomorrow"}):
             self.path.write_text(json.dumps({ladder._ordered_scope("thread", jev.SOL): initial, "_ordered_primary_circuit": circuit}))
             with self.assertRaises(ValueError):
-                ladder.route("thread", "gpt-6.1-sol", "high")
+                ladder.route("thread", "gpt-6.2-sol", "high")
 
 
 class OrderedForwardTests(unittest.TestCase):
@@ -276,7 +319,7 @@ class OrderedForwardTests(unittest.TestCase):
                   "reasoning_profiles": {"b": {"supported": False},
                                          "c": {"supported_efforts": ["low", "high"]}}}
         calls, handler, original = self._run(config, [(503, b"error"), (503, b"error"), (200, None)])
-        self.assertEqual([p["model"] for p, _ in calls], ["gpt-6.1-sol", "b", "c"])
+        self.assertEqual([p["model"] for p, _ in calls], ["gpt-6.2-sol", "b", "c"])
         self.assertIsNone(calls[0][1]["external"])
         self.assertIsNotNone(calls[1][1]["external"])
         self.assertEqual([p["reasoning"].get("effort") for p, _ in calls], ["xhigh", None, "high"])
@@ -336,7 +379,7 @@ class OrderedForwardTests(unittest.TestCase):
         self.assertEqual(calls, [])
         self.assertEqual(handler._json.call_args.args[0], 400)
         calls, _, _ = self._run(CONFIG, [(200, None)], tool_search=True)
-        self.assertEqual([p["model"] for p, _ in calls], ["gpt-6.1-sol"])
+        self.assertEqual([p["model"] for p, _ in calls], ["gpt-6.2-sol"])
 
     def test_failed_forced_native_is_attempted_once(self):
         calls, _, _ = self._run(CONFIG, [(503, b"error")], tool_search=True)

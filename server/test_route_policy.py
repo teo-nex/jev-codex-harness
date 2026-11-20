@@ -35,7 +35,7 @@ class SplitPolicy(unittest.TestCase):
         self.assertNotIn("astra", QUESTIONS["model"]["criteria"])
         self.assertIn("terra", encoded)
         self.assertEqual(jev.LUNA, "gpt-6-luna")
-        self.assertEqual(set(jev.TIERS), {"gpt-6-luna", "gpt-6.1-terra", "gpt-6.1-sol", "gpt-6-astra"})
+        self.assertEqual(set(jev.TIERS), {"gpt-6-luna", "gpt-6.1-terra", "gpt-6.2-sol", "gpt-6.2-astra"})
         self.assertEqual(set(QUESTIONS), {"astra_policy", "model", "effort", "lease"})
         self.assertIn("corrections and clarification turns", encoded)
         self.assertIn("reprocessing-cost evidence", encoded)
@@ -149,7 +149,7 @@ class SplitPolicy(unittest.TestCase):
         self.assertEqual(decision_from_answers(answer)["model"], jev.SOL)
 
     def test_retired_sol6_cannot_be_selected_or_reused_as_a_route(self):
-        self.assertEqual(jev.SOL, "gpt-6.1-sol")
+        self.assertEqual(jev.SOL, "gpt-6.2-sol")
         for effort in jev.EFFORTS:
             with self.subTest(effort=effort):
                 with self.assertRaises(ValueError):

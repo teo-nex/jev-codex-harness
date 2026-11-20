@@ -3,6 +3,11 @@
 from pathlib import PurePosixPath, PureWindowsPath
 import re
 
+try:
+    from .routing_policy import ASTRA
+except ImportError:  # launched as a script from server/
+    from routing_policy import ASTRA
+
 
 def validate_project_fields(config):
     policies, scopes = config.get("project_policies", {}), config.get("project_scopes", {})
@@ -58,8 +63,8 @@ def restrict(config, policy, final=False):
         if not native and (policy.get("native_only") or (allowed is not None and entry["id"] not in allowed)
                            or (policy.get("no_paid_fallback") and entry.get("billing") not in ("free", "subscription"))):
             continue
-        destination = entry.get("model") or entry.get("models", {}).get("gpt-6-astra") or "gpt-6-astra"
-        if final and (not native or destination != "gpt-6-astra"):
+        destination = entry.get("model") or entry.get("models", {ASTRA: ASTRA}).get(ASTRA)
+        if final and (not native or destination != ASTRA):
             continue
         providers.append(entry)
     if not providers:

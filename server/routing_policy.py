@@ -1,8 +1,8 @@
 """Compact Jev contract: model, effort, lease and mandatory-frontier policy."""
 import math
 
-POLICY_VERSION = "split-v16-terra6.1-default-sol6.1-hard"
-LUNA, TERRA, SOL, ASTRA = "gpt-6-luna", "gpt-6.1-terra", "gpt-6.1-sol", "gpt-6-astra"
+POLICY_VERSION = "split-v17-terra6.1-default-sol6.2-hard"
+LUNA, TERRA, SOL, ASTRA = "gpt-6-luna", "gpt-6.1-terra", "gpt-6.2-sol", "gpt-6.2-astra"
 TIERS = (LUNA, TERRA, SOL, ASTRA)
 EFFORTS = ["low", "medium", "high", "xhigh", "max"]
 LEASES = ("one_call", "tool_chain", "user_turn")
@@ -12,7 +12,7 @@ MODEL_IDS = {"luna": LUNA, "terra": TERRA, "sol": SOL}
 # It now identifies hard work for Sol, never an automatic Astra request.
 ASTRA_POLICY = {
     "astra": (
-        "Hard work needing Sol 6.1: open-ended architecture, difficult debugging, "
+        "Hard work needing Sol 6.2: open-ended architecture, difficult debugging, "
         "complex integration, 3D/spatial graphics, computer use or consequential review."
     ),
     "normal": (
@@ -73,7 +73,7 @@ QUESTIONS = {
         "instructions": (
             "Minimize total task cost including corrections and clarification turns. "
             "Choose sufficient capability for remaining work. "
-            "Default to Terra 6.1; use Sol 6.1 for hard work, Luna only for tiny tasks. "
+            "Default to Terra 6.1; use Sol 6.2 for hard work, Luna only for tiny tasks. "
             "Use cache_state model state, read_pct, age_s and context_k as reprocessing-cost "
             "evidence. Keep a sufficient last model, especially with large context; switch "
             "when capability demands it. hot means a real read; warming only recent success. "

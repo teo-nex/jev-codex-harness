@@ -270,18 +270,19 @@ test("a Codex upgrade asks outright instead of replaying the previous version's 
     // The account endpoint gates natives on client_version, so the answer the
     // old validator described is not the answer this client would get. Sending
     // it invites a 304 that hides a newly released native forever (issue #645).
-    const staleModels = [{ slug: "gpt-5.6-sol", visibility: "list" }];
+    const staleModels = [{ slug: "gpt-6.1-sol", visibility: "list" }];
     const upgradedModels = [
-      { slug: "gpt-5.6-sol", visibility: "list" },
-      { slug: "gpt-6-astra", visibility: "list" },
+      { slug: "gpt-6.1-sol", visibility: "list" },
+      { slug: "gpt-6.2-astra", visibility: "list" },
+      { slug: "gpt-6.2-sol", visibility: "list" },
     ];
-    writeFileSync(cachePath, JSON.stringify(fixtureCache(staleModels)));
+    writeFileSync(cachePath, JSON.stringify(fixtureCache(staleModels, { client_version: "0.165.0" })));
     let request;
     const result = await refreshNativeAccountCatalog({
       cachePath,
       force: true,
-      now: Date.parse("2026-09-09T00:00:00.000Z"),
-      version: "0.153.4",
+      now: Date.parse("2026-11-17T00:00:00.000Z"),
+      version: "0.166.0",
       headersProvider,
       discoveryOff: () => false,
       lock: noLock,
@@ -289,22 +290,22 @@ test("a Codex upgrade asks outright instead of replaying the previous version's 
         request = { url, init };
         return new Response(JSON.stringify({ models: upgradedModels }), {
           status: 200,
-          headers: { etag: 'W/"astra-account-catalog"' },
+          headers: { etag: 'W/"gpt62-account-catalog"' },
         });
       },
     });
 
-    assert.match(request.url, /client_version=0\.153\.4/);
+    assert.match(request.url, /client_version=0\.166\.0/);
     assert.equal(
       request.init.headers["if-none-match"],
       undefined,
-      "an ETag from client_version 0.153.2 must not condition a 0.153.4 request",
+      "an ETag from client_version 0.165.0 must not condition a 0.166.0 request",
     );
     assert.equal(result.status, "updated");
     const written = JSON.parse(readFileSync(cachePath, "utf8"));
     assert.deepEqual(written.models, upgradedModels);
-    assert.equal(written.client_version, "0.153.4");
-    assert.equal(written.etag, 'W/"astra-account-catalog"');
+    assert.equal(written.client_version, "0.166.0");
+    assert.equal(written.etag, 'W/"gpt62-account-catalog"');
   }));
 
 test("an unconditional request answered 304 leaves the stale cache unblessed", () =>

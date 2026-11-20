@@ -74,6 +74,9 @@ OPENAI = {
     # Exact Terra 6.1 short-context API card, verified 2026-10-28:
     # https://developers.openai.com/api/docs/models/gpt-6.1-terra
     "gpt-6.1-terra": ("1.00", "0.05", "5.00", "1.25"),
+    # Published standard API prices for GPT-6.2, with 30-minute cache writes.
+    "gpt-6.2-sol": ("2.00", "0.10", "10.00", "2.50"),
+    "gpt-6.2-astra": ("8.00", "0.40", "40.00", "10.00"),
     "gpt-6-luna": ("0.10", "0.01", "0.50", "0.125"),
     "gpt-6-sol": ("2.00", "0.20", "10.00", "2.50"),
     "gpt-6-astra": ("10.00", "1.00", "50.00", "12.50"),
@@ -87,7 +90,7 @@ NEXT_NATIVE = {"gpt-6-luna": "gpt-6-sol", "gpt-6-sol": "gpt-6-astra",
 
 def canonical_model(model):
     leaf = str(model or "").split("/")[-1]
-    match = re.fullmatch(r"(gpt-(?:6(?:\.1)?|5\.6)-(?:luna|terra|sol|astra))(?:-(?:low|medium|high|xhigh|max))?", leaf)
+    match = re.fullmatch(r"(gpt-(?:6(?:\.[12])?|5\.6)-(?:luna|terra|sol|astra))(?:-(?:low|medium|high|xhigh|max))?", leaf)
     return match.group(1) if match else str(model or "")
 
 

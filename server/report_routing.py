@@ -59,7 +59,8 @@ import sys
 from contextlib import ExitStack
 from itertools import chain
 from local_runtime import STATE
-from routing_policy import POLICY_VERSION, SOL as CURRENT_SOL, TERRA as CURRENT_TERRA
+from routing_policy import (ASTRA as CURRENT_ASTRA, POLICY_VERSION, SOL as CURRENT_SOL,
+                            TERRA as CURRENT_TERRA)
 
 LIVE_LOG = os.path.join(STATE, "jev-router-live.jsonl")
 BACKTEST_STATE = os.path.join(STATE, "jev-backtest.json")
@@ -68,15 +69,18 @@ BACKTEST_STATE = os.path.join(STATE, "jev-backtest.json")
 # Sol 6.1 usage is observed but unpriced until an exact rate card is verified.
 LUNA, SOL, ASTRA = "gpt-6-luna", "gpt-6-sol", "gpt-6-astra"
 TERRA = "gpt-5.6-terra"
-# Retained only to interpret historical telemetry and costs, not routing choices.
-NATIVE_TIERS = (LUNA, TERRA, CURRENT_TERRA, SOL, CURRENT_SOL, ASTRA)
+# Includes the current tiers and older IDs still found in telemetry.
+NATIVE_TIERS = (LUNA, TERRA, CURRENT_TERRA, SOL, "gpt-6.1-sol", CURRENT_SOL, ASTRA, CURRENT_ASTRA)
 HISTORICAL_NATIVE_TIERS = ("gpt-5.6-luna", "gpt-5.6-sol")
 
-# Prices per 1M tokens (input, output, cached input, cache write), short context,
-# Sep 2026 — kept identical to poc/backtest_savings.py so the two tools agree.
+# Short-context prices per 1M tokens (input, output, cached input, cache write).
+# Historical baselines retain the Sep 2026 snapshot used by the backtest.
+# GPT-6.2 rates are the published short-context Standard API rates.
 PRICES = {
     # Exact Terra 6.1 API card verified 2026-10-28; not a ChatGPT credit rate.
     CURRENT_TERRA: (1.00, 5.00, 0.05, 1.25),
+    CURRENT_SOL: (2.00, 10.00, 0.10, 2.50),
+    CURRENT_ASTRA: (8.00, 40.00, 0.40, 10.00),
     ASTRA: (10.00, 50.00, 1.00, 12.50),
     SOL: (2.00, 10.00, 0.20, 2.50),
     "gpt-5.6-terra": (2.00, 12.00, 0.20, 2.50),
@@ -98,7 +102,9 @@ SHORT = {
     LUNA: "luna",
     TERRA: "terra",
     SOL: "sol",
-    CURRENT_SOL: "sol6.1",
+    "gpt-6.1-sol": "sol6.1",
+    CURRENT_SOL: "sol6.2",
+    CURRENT_ASTRA: "astra6.2",
     CURRENT_TERRA: "terra6.1",
     ASTRA: "astra",
     "opencode-go/deepseek-v4.1-flash": "tandem",
@@ -391,7 +397,7 @@ def turn_cost(model, mix=None, speed="default"):
         return None
     mix = mix or MIX
     p_in, p_out, p_cached, p_write = PRICES[key]
-    if key in (LUNA, SOL, ASTRA, CURRENT_TERRA, "gpt-5.6-terra") and speed in ("priority", "fast"):
+    if key in (LUNA, SOL, ASTRA, CURRENT_SOL, CURRENT_ASTRA, CURRENT_TERRA, TERRA) and speed in ("priority", "fast"):
         p_in, p_out, p_cached, p_write = (p_in * API_FAST_X, p_out * API_FAST_X,
                                         p_cached * API_FAST_X, p_write * API_FAST_X)
     cached = min(mix["cached"], mix["input"])

@@ -90,13 +90,13 @@ class Usage(unittest.TestCase):
 
     def test_sol61_attempt_is_counted_without_reusing_sol6_prices(self):
         result = report.measured_usage([{"attempts": [{
-            "model": j.SOL, "speed": "default",
+            "model": "gpt-6.1-sol", "speed": "default",
             "usage": {"input_tokens": 1000, "cached_input_tokens": 500, "output_tokens": 10},
         }]}])
         self.assertEqual(result["native_attempts"], 1)
         self.assertEqual(result["unknown_attempts"], 1)
         self.assertEqual(result["priced_attempts"], 0)
-        self.assertIsNone(report.turn_cost(j.SOL))
+        self.assertIsNone(report.turn_cost("gpt-6.1-sol"))
 
     def test_prompt_cache_is_measured_per_session_and_model(self):
         entries = [

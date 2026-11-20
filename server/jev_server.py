@@ -7,7 +7,7 @@ and a thinking depth, applies the routing policy, then relays to the Codex
 Router's local caller edge (native session sharing enabled) — with no format
 conversion: Responses in, Responses out, SSE relayed verbatim.
 
-Routing policy: Sol 6.1 handles hard tasks; Terra 6.1 is the default for most
+Routing policy: Sol 6.2 handles hard tasks; Terra 6.1 is the default for most
 ordinary implementation, tests, tools and writing; Luna 6 handles only tiny
 self-contained tasks. Astra is manual-only (or an explicit operator override).
 Jev chooses capability, reasoning depth and route lease independently. The
@@ -98,7 +98,7 @@ from local_runtime import (
 
 from routing_policy import (ASTRA, EFFORTS, LUNA, TERRA, POLICY_VERSION, QUESTIONS, SOL,
                             TIERS, decision_from_answers, route)
-from provider_ladder import Ladder
+from provider_ladder import LEGACY_ASTRA, Ladder
 from project_policy import resolve as resolve_project_policy, restrict as restrict_project_routes, final_required
 from request_budget import RequestBudget, AttemptClock, BudgetExceeded, ClientDisconnected, ExhaustedRequests
 from validated_stream import ValidatedStream
@@ -972,7 +972,9 @@ ROUTE_GLYPHS = {
     "gpt-6-luna": ("luna", "⚡"),      # cheap tier, adaptive thinking
     "gpt-6.1-terra": ("terra", "🌍"),  # bounded worker tasks
     "gpt-6.1-sol": ("sol", "🧠"),        # reasoning workhorse
-    "gpt-6-astra": ("astra", "🚀"),      # frontier
+    "gpt-6-astra": ("astra", "🚀"),
+    SOL: ("sol", "🧠"),
+    ASTRA: ("astra", "🚀"),
     "wally/glm-5.3-flash": ("wally-glm", "✨"),
 }
 TANDEM_GLYPHS = {
@@ -1415,7 +1417,7 @@ def _astra_configuration_eligible(payload):
 def apply_route_payload(payload, model, effort, original_reasoning, injected_update=None):
     """Apply one attempt's route while preserving the stable request prefix.
 
-    Astra can change reasoning for the next user message through a
+    GPT-6 Astra can change reasoning for the next user message through a
     configuration_update, leaving the request-level reasoning prefix unchanged.
     Retries remove the update by object identity before targeting another model.
     """
@@ -1437,7 +1439,7 @@ def apply_route_payload(payload, model, effort, original_reasoning, injected_upd
         else None
     )
     if (
-        model == ASTRA
+        model == LEGACY_ASTRA
         and effort in EFFORTS
         and base_effort in EFFORTS
         and effort != base_effort

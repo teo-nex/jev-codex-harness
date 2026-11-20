@@ -81,6 +81,27 @@ class LadderTests(unittest.TestCase):
             self.assertEqual(ladder.route("thread-a", "gpt-6-luna", "low")["stage"], "exhausted")
             self.assertEqual(ladder.route("thread-b", "gpt-6-luna", "low")["stage"], "gemini")
 
+    def test_plus_missing_sol62_parks_only_sol62_across_threads_and_restarts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "state.json"
+            ladder = Ladder(CONFIG, path)
+            with mock.patch("provider_ladder.time.time", return_value=1000):
+                failed = ladder.route("shared", "gpt-6.2-sol", "high")
+                self.assertTrue(ladder.advance("shared", failed, "model_unavailable", cooldown_seconds=60))
+                self.assertFalse(ladder.advance("shared", failed, "model_unavailable", cooldown_seconds=60))
+                self.assertFalse(ladder.note_success("shared", failed))
+                ladder = Ladder(CONFIG, path)
+                for scope in ("shared", "fresh"):
+                    self.assertEqual(ladder.route(scope, "gpt-6.2-sol", "high")["stage"], "gemini")
+                    luna = ladder.route(scope, "gpt-6-luna", "low")
+                    self.assertEqual(luna["stage"], "plus")
+                    ladder.note_success(scope, luna)
+                    self.assertEqual(ladder.route(scope, "gpt-6.2-sol", "high")["stage"], "gemini")
+            with mock.patch("provider_ladder.time.time", return_value=1061):
+                recovered = ladder.route("shared", "gpt-6.2-sol", "high")
+                self.assertEqual((recovered["stage"], recovered["model"]), ("plus", "gpt-6.2-sol"))
+                self.assertTrue(ladder.note_success("shared", recovered))
+
     def test_stale_failure_cannot_skip_another_account(self):
         with tempfile.TemporaryDirectory() as directory:
             ladder = Ladder(CONFIG, Path(directory) / "state.json")

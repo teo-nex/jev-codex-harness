@@ -18,11 +18,11 @@ from ownership import owned_paths, patch_allowed, readonly_command
 
 
 class WorkerOwnershipTests(unittest.TestCase):
-    def test_worker_orchestrator_uses_sol61_when_jev_is_unavailable(self):
+    def test_worker_orchestrator_uses_sol62_when_jev_is_unavailable(self):
         task = {"goal": "Investigate the failing export", "acceptance_commands": []}
         with mock.patch.object(routing, "task_classification", return_value={"unavailable": "fixture"}):
             route = routing.choose_route(self.cwd, task, self.state)
-        self.assertEqual(route["model"], "gpt-6.1-sol")
+        self.assertEqual(route["model"], "gpt-6.2-sol")
         self.assertEqual(route["reason"], "jev_unavailable")
 
     def setUp(self):

@@ -36,9 +36,13 @@ class ProjectPolicyTests(unittest.TestCase):
         self.assertTrue(final_required(policy, {}, {"astra_policy": "astra"}))
         restricted = restrict(config, policy, True)
         self.assertEqual([p["id"] for p in restricted["providers"]], ["native"])
-        restricted["providers"][0]["model"] = "gpt-6.1-sol"
-        with self.assertRaises(ValueError):
-            restrict(restricted, policy, True)
+        for pinned in ("gpt-6.1-sol", "gpt-6-astra"):
+            with self.subTest(pinned=pinned), self.assertRaises(ValueError):
+                restrict({"providers": [{"id": "native", "transport": "native",
+                                        "model": pinned}]}, policy, True)
+        with tempfile.TemporaryDirectory() as root:
+            ladder = Ladder(restricted, Path(root) / "state.json")
+            self.assertEqual(ladder.native_route(jev.ASTRA, "high")["model"], "gpt-6.2-astra")
 
     def test_bad_policy_and_binding_rejected(self):
         for change in ({"project_scopes": {"bad": "/project"}},
@@ -64,4 +68,4 @@ class ProjectPolicyTests(unittest.TestCase):
              mock.patch.object(jev, "call_jev_routed") as decision:
             handler._post()
         decision.assert_not_called()
-        self.assertEqual(handler._serve_ladder.call_args.args[2], "gpt-6.1-sol")
+        self.assertEqual(handler._serve_ladder.call_args.args[2], "gpt-6.2-sol")
