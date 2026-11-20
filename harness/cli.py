@@ -9,6 +9,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from server.decision_contract import DECISION_PROVIDERS
+
 from . import core
 from . import live_verify
 from . import onboard
@@ -25,8 +27,10 @@ def parser() -> argparse.ArgumentParser:
                      default=Path(os.environ["CODEX_HOME"]) if os.environ.get("CODEX_HOME") else Path.home() / ".codex")
     app.add_argument("--ladder-config", type=Path, default=Path(os.environ["JEV_LADDER_CONFIG"]) if os.environ.get("JEV_LADDER_CONFIG") else None)
     app.add_argument("--omniroute-auth-file", type=Path, default=Path(os.environ["JEV_OMNIROUTE_AUTH_FILE"]) if os.environ.get("JEV_OMNIROUTE_AUTH_FILE") else None)
-    app.add_argument("--jev-provider", choices=("typesafe", "openrouter"),
+    app.add_argument("--jev-provider", choices=DECISION_PROVIDERS,
                      default=os.environ.get("JEV_DECISION_PROVIDER", "typesafe"))
+    app.add_argument("--jev-endpoint", help="full URL of a compatible Jev decisions API")
+    app.add_argument("--jev-model", help="Jev model ID advertised by the compatible gateway")
     app.add_argument("--jev-key-file", "--typesafe-key-file", dest="typesafe_key_file",
                      type=Path)
     app.add_argument("--port", type=int, default=4319)
@@ -71,8 +75,8 @@ def parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None, repo: Path | None = None) -> int:
     args = parser().parse_args(argv)
-    if args.typesafe_key_file is None:
-        key_name = "JEV_DECISION_KEY_FILE" if args.jev_provider == "openrouter" else "TYPESAFE_API_KEY_FILE"
+    if args.command != "onboard" and args.jev_provider != "compatible" and args.typesafe_key_file is None:
+        key_name = "JEV_DECISION_KEY_FILE" if args.jev_provider != "typesafe" else "TYPESAFE_API_KEY_FILE"
         if os.environ.get(key_name):
             args.typesafe_key_file = Path(os.environ[key_name])
     repo = repo or Path(__file__).resolve().parents[1]
@@ -106,13 +110,15 @@ def main(argv: list[str] | None = None, repo: Path | None = None) -> int:
             result = onboard.run(repo, args.codex_home, args.port,
                                  default_provider=args.jev_provider,
                                  ladder=args.ladder_config, omni=args.omniroute_auth_file,
-                                 key_file=args.typesafe_key_file)
+                                 key_file=args.typesafe_key_file,
+                                 jev_endpoint=args.jev_endpoint, jev_model=args.jev_model)
             code = 0 if (result.get("ready") is True or
                          (result.get("installed") is True and result.get("status") == "hook_trust_pending")) else 2
         elif args.command == "doctor":
             result = core.doctor(repo, args.codex_home, args.ladder_config,
                                  args.omniroute_auth_file, args.typesafe_key_file, args.port,
-                                 jev_provider=args.jev_provider)
+                                 jev_provider=args.jev_provider, jev_endpoint=args.jev_endpoint,
+                                 jev_model=args.jev_model)
             code = 0 if result["ready"] else 2
         elif args.command == "prepare":
             result = core.prepare(repo, args.codex_home)
@@ -121,13 +127,15 @@ def main(argv: list[str] | None = None, repo: Path | None = None) -> int:
             result = core.install(repo, args.codex_home, args.ladder_config,
                                   args.omniroute_auth_file, args.typesafe_key_file,
                                   args.port, dry_run=args.dry_run,
-                                  jev_provider=args.jev_provider)
+                                  jev_provider=args.jev_provider, jev_endpoint=args.jev_endpoint,
+                                 jev_model=args.jev_model)
             code = 0
         elif args.command == "resume":
             result = core.resume(repo, args.codex_home, args.ladder_config,
                                  args.omniroute_auth_file, args.typesafe_key_file,
                                  args.port, reviewed_auth_sha256=args.reviewed_auth_sha256,
-                                 jev_provider=args.jev_provider)
+                                 jev_provider=args.jev_provider, jev_endpoint=args.jev_endpoint,
+                                 jev_model=args.jev_model)
             code = 0
         elif args.command == "verify":
             result = core.verify(args.codex_home)

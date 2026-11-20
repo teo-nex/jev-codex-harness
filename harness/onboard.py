@@ -11,6 +11,8 @@ import shlex
 import subprocess
 import sys
 
+from server.decision_contract import DECISION_PROVIDERS, decision_environment
+
 from . import core
 from . import live_verify
 from . import catalog
@@ -124,14 +126,27 @@ def _report_command(repo: Path, home: Path) -> str:
 
 def run(repo: Path, codex_home: Path, port: int, *, default_provider: str = "typesafe",
         ladder: Path | None = None, omni: Path | None = None, key_file: Path | None = None,
+        jev_endpoint: str | None = None, jev_model: str | None = None,
         read=input, secret=getpass.getpass, key_root: Path | None = None) -> dict:
-    if default_provider not in ("typesafe", "openrouter"):
-        raise core.InstallError("Jev provider must be typesafe or openrouter")
+    if default_provider not in DECISION_PROVIDERS:
+        raise core.InstallError("Jev provider must be typesafe, openrouter or compatible")
     default_home = codex_home.expanduser().resolve()
     home = Path(_answer(read, "Fresh Codex profile path", str(default_home))).expanduser().resolve()
-    selected = _answer(read, "Jev key provider (typesafe/openrouter)", default_provider).lower()
-    if selected not in ("typesafe", "openrouter"):
-        raise core.InstallError("Choose typesafe or openrouter for Jev")
+    selected = _answer(read, "Jev key provider (typesafe/openrouter/compatible)", default_provider).lower()
+    if (jev_endpoint is not None or jev_model is not None) and selected != "compatible":
+        raise core.InstallError("Jev endpoint and model require --jev-provider compatible")
+    if selected == "compatible":
+        jev_endpoint = _answer(read, "Full Jev decisions endpoint URL", jev_endpoint or "")
+        jev_model = _answer(read, "Jev model ID", jev_model or "")
+    try:
+        decision_environment(selected, jev_endpoint, jev_model)
+    except ValueError as exc:
+        raise core.InstallError(str(exc)) from exc
+    if key_file is None and selected == default_provider and selected != "compatible":
+        key_name = "TYPESAFE_API_KEY_FILE" if selected == "typesafe" else "JEV_DECISION_KEY_FILE"
+        if os.environ.get(key_name):
+            key_file = Path(os.environ[key_name])
+    decision = {"jev_provider": selected, "jev_endpoint": jev_endpoint, "jev_model": jev_model}
     external_default = "yes" if ladder is not None and omni is not None else "no"
     external = _answer(read, "Use an existing OmniRoute gateway? (yes/no)", external_default).lower()
     if external not in ("yes", "no"):
@@ -163,7 +178,7 @@ def run(repo: Path, codex_home: Path, port: int, *, default_provider: str = "typ
 
     # Refuse structural conflicts before collecting or writing a credential.
     preliminary = core.doctor(repo, home, ladder, omni if ladder is not None else None, key_file, port,
-                              jev_provider=selected)
+                              **decision)
     blockers = [issue for issue in preliminary["issues"]
                 if issue != "Set protected Jev decision key path"]
     if blockers:
@@ -172,7 +187,8 @@ def run(repo: Path, codex_home: Path, port: int, *, default_provider: str = "typ
     if key_file is None:
         key_text = secret(f"{selected} Jev API key (hidden): ").strip()
         if (not key_text or len(key_text) > 4096
-                or any(ch.isspace() or ord(ch) < 0x20 for ch in key_text)):
+                or (selected == "compatible" and not key_text.isascii())
+                or any(ch.isspace() or ord(ch) < 0x20 or ord(ch) == 0x7f for ch in key_text)):
             raise core.InstallError("A non-empty single-line Jev key is required")
         key_file = _new_key_path(home, selected, key_root)
         if key_file.exists() or key_file.is_symlink():
@@ -192,16 +208,16 @@ def run(repo: Path, codex_home: Path, port: int, *, default_provider: str = "typ
             core._atomic(ladder, (json.dumps(generated_config, indent=2) + "\n").encode())
             created_ladder = ladder
         report = core.doctor(repo, home, ladder, omni, key_file, port,
-                             jev_provider=selected)
+                             **decision)
         if not report["ready"]:
             return {"ready": False, "issues": report["issues"], "key_written": False,
                     "codex_home": str(home)}
         core.prepare(repo, home)
         _offline_smoke(repo)
         dry_run = core.install(repo, home, ladder, omni, key_file, port,
-                               dry_run=True, jev_provider=selected)
+                               dry_run=True, **decision)
         installed = core.install(repo, home, ladder, omni, key_file, port,
-                                 dry_run=False, jev_provider=selected)
+                                 dry_run=False, **decision)
         verified = core.verify(home)
         local_ready = all(verified.get(key) is True for key in
                           ("files", "client_config", "model_preserved", "service_health"))

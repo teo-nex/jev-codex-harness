@@ -20,6 +20,8 @@ import tomllib
 import urllib.request
 from pathlib import Path
 
+from server.decision_contract import COMPATIBLE_ENV, decision_environment
+
 from .agent_config import managed_section, merge_agents, remove_agents, section
 from .browser_config import DEFAULT_HELPER, merge_browser_config
 
@@ -142,9 +144,9 @@ def ladder_mode(ladder: Path | None, omni: Path | None) -> str:
 
 
 def _service_env(mode: str, omni: Path | None, decision_key: Path, port: int,
-                 jev_provider: str) -> dict[str, str]:
+                 jev_provider: str, settings: dict[str, str]) -> dict[str, str]:
     values = {"JEV_LISTEN_PORT": str(port), "JEV_LADDER_MODE": mode,
-              "JEV_DECISION_PROVIDER": jev_provider}
+              "JEV_DECISION_PROVIDER": jev_provider, **settings}
     values["TYPESAFE_API_KEY_FILE" if jev_provider == "typesafe" else "JEV_DECISION_KEY_FILE"] = str(decision_key)
     if mode == "active":
         values["JEV_OMNIROUTE_AUTH_FILE"] = str(omni)
@@ -170,14 +172,17 @@ def _browser_supported(os_name: str | None) -> bool:
 
 def inputs(repo: Path, codex_home: Path, ladder: Path | None, omni: Path | None,
            typesafe: Path | None, port: int, os_name: str | None = None,
-           jev_provider: str = "typesafe") -> dict:
+           jev_provider: str = "typesafe", *, jev_endpoint: str | None = None,
+           jev_model: str | None = None) -> dict:
     repo = repo.resolve()
     codex_home = codex_home.expanduser().resolve()
     if codex_home.is_relative_to(repo):
         raise InstallError("Codex profile must be outside the source repository")
     mode = ladder_mode(ladder, omni)
-    if jev_provider not in ("typesafe", "openrouter"):
-        raise InstallError("Jev decision provider must be typesafe or openrouter")
+    try:
+        settings = decision_environment(jev_provider, jev_endpoint, jev_model)
+    except ValueError as exc:
+        raise InstallError(str(exc)) from exc
     if typesafe is None:
         raise InstallError("Provide protected file path: --jev-key-file")
     ladder = ladder_file(ladder) if mode == "active" else None
@@ -189,16 +194,17 @@ def inputs(repo: Path, codex_home: Path, ladder: Path | None, omni: Path | None,
         raise InstallError("--port must be between 1024 and 65535")
     state = codex_home / "jev-harness"
     module = platform_module(os_name)
-    plan = module.plan_service(repo, codex_home, state, _service_env(mode, omni, typesafe, port, jev_provider))
+    plan = module.plan_service(repo, codex_home, state, _service_env(mode, omni, typesafe, port, jev_provider, settings))
     return {"repo": repo, "codex_home": codex_home, "state": state, "ladder": ladder,
             "omni": omni, "typesafe": typesafe, "ladder_mode": mode,
-            "jev_provider": jev_provider,
+            "jev_provider": jev_provider, "jev_endpoint": jev_endpoint, "jev_model": jev_model,
             "service": plan, "platform": module, "port": port}
 
 
 def doctor(repo: Path, codex_home: Path, ladder: Path | None, omni: Path | None,
            typesafe: Path | None, port: int, os_name: str | None = None,
-           jev_provider: str = "typesafe") -> dict:
+           jev_provider: str = "typesafe", *, jev_endpoint: str | None = None,
+           jev_model: str | None = None) -> dict:
     issues = []
     if sys.version_info < (3, 11):
         issues.append("Python 3.11+ required")
@@ -228,8 +234,10 @@ def doctor(repo: Path, codex_home: Path, ladder: Path | None, omni: Path | None,
     except InstallError as exc:
         issues.append(str(exc))
         mode = None
-    if jev_provider not in ("typesafe", "openrouter"):
-        issues.append("Jev decision provider must be typesafe or openrouter")
+    try:
+        decision_environment(jev_provider, jev_endpoint, jev_model)
+    except ValueError as exc:
+        issues.append(str(exc))
     for label, path in (("ladder config", ladder), ("OmniRoute auth", omni), ("Jev decision key", typesafe)):
         if path is None:
             if label == "Jev decision key" or mode == "active":
@@ -253,7 +261,8 @@ def doctor(repo: Path, codex_home: Path, ladder: Path | None, omni: Path | None,
     try:
         module = platform_module(os_name)
         if not issues:
-            ctx = inputs(repo, codex_home, ladder, omni, typesafe, port, os_name, jev_provider)
+            ctx = inputs(repo, codex_home, ladder, omni, typesafe, port, os_name, jev_provider,
+                         jev_endpoint=jev_endpoint, jev_model=jev_model)
             status = module.service_status(ctx["service"])
             if status["installed"] or status["active"]:
                 issues.append("Jev service identity already exists; migration requires review")
@@ -595,6 +604,7 @@ def _continue_install(ctx: dict, journal: dict, os_name: str | None) -> dict:
                     "model_after": config.get("model"),
                     "ladder_mode": ctx["ladder_mode"],
                     "jev_provider": ctx["jev_provider"],
+                    "jev_endpoint": ctx["jev_endpoint"], "jev_model": ctx["jev_model"],
                     "browser_enabled": _browser_supported(os_name),
                     "native_session_sharing": "pending_explicit_opt_in"}
         _atomic(state / "manifest.json", (json.dumps(manifest, indent=2) + "\n").encode())
@@ -651,15 +661,18 @@ def _continue_install(ctx: dict, journal: dict, os_name: str | None) -> dict:
 def install(repo: Path, codex_home: Path, ladder: Path, omni: Path, typesafe: Path,
             port: int, dry_run: bool = True, os_name: str | None = None,
             reviewed_auth_sha256: str | None = None,
-            jev_provider: str = "typesafe") -> dict:
+            jev_provider: str = "typesafe", *, jev_endpoint: str | None = None,
+            jev_model: str | None = None) -> dict:
     home_check = codex_home.expanduser().resolve()
     journal_path = home_check / "jev-harness/journal.json"
     if not dry_run and journal_path.exists():
         saved = _read_journal(home_check)
-        ctx_saved = inputs(repo, codex_home, ladder, omni, typesafe, port, os_name, jev_provider)
+        ctx_saved = inputs(repo, codex_home, ladder, omni, typesafe, port, os_name, jev_provider,
+                           jev_endpoint=jev_endpoint, jev_model=jev_model)
         service = ctx_saved["service"]
         if (saved["repo"] != str(ctx_saved["repo"]) or saved["port"] != port
                 or saved.get("jev_provider", "typesafe") != jev_provider
+                or saved.get("jev_endpoint") != jev_endpoint or saved.get("jev_model") != jev_model
                 or saved["service_id"] != service["service_id"]
                 or saved["definition_path"] != service["definition_path"]
                 or saved.get("input_paths") != _input_paths(ctx_saved)):
@@ -699,10 +712,12 @@ def install(repo: Path, codex_home: Path, ladder: Path, omni: Path, typesafe: Pa
                                   "agents_written", "service_pending", "service_installed", "manifest_written"}:
             raise InstallError("Existing journal cannot be continued; exact review required")
         return _continue_install(ctx_saved, saved, os_name)
-    report = doctor(repo, codex_home, ladder, omni, typesafe, port, os_name, jev_provider)
+    report = doctor(repo, codex_home, ladder, omni, typesafe, port, os_name, jev_provider,
+                    jev_endpoint=jev_endpoint, jev_model=jev_model)
     if not report["ready"]:
         raise InstallError("Preflight failed: " + "; ".join(report["issues"]))
-    ctx = inputs(repo, codex_home, ladder, omni, typesafe, port, os_name, jev_provider)
+    ctx = inputs(repo, codex_home, ladder, omni, typesafe, port, os_name, jev_provider,
+                 jev_endpoint=jev_endpoint, jev_model=jev_model)
     home, state = ctx["codex_home"], ctx["state"]
     plan = ctx["service"]
     if dry_run:
@@ -739,6 +754,7 @@ def install(repo: Path, codex_home: Path, ladder: Path, omni: Path, typesafe: Pa
                "codex_home": str(home), "service_id": plan["service_id"],
                "definition_path": plan["definition_path"], "port": port,
                "jev_provider": jev_provider,
+               "jev_endpoint": jev_endpoint, "jev_model": jev_model,
                "input_paths": _input_paths(ctx),
                "input_hashes": _input_hashes(ctx),
                "owned": {}, "router_owned": False}
@@ -767,14 +783,15 @@ def install(repo: Path, codex_home: Path, ladder: Path, omni: Path, typesafe: Pa
 def resume(repo: Path, codex_home: Path, ladder: Path, omni: Path, typesafe: Path,
            port: int, os_name: str | None = None,
            reviewed_auth_sha256: str | None = None,
-           jev_provider: str = "typesafe") -> dict:
+           jev_provider: str = "typesafe", *, jev_endpoint: str | None = None,
+           jev_model: str | None = None) -> dict:
     """Continue a proven partial install; never start a new one implicitly."""
     home = codex_home.expanduser().resolve()
     if not (home / "jev-harness/journal.json").is_file():
         raise InstallError("No installation journal to resume")
     return install(repo, home, ladder, omni, typesafe, port, False, os_name,
                    reviewed_auth_sha256=reviewed_auth_sha256,
-                   jev_provider=jev_provider)
+                   jev_provider=jev_provider, jev_endpoint=jev_endpoint, jev_model=jev_model)
 
 
 def verify(codex_home: Path) -> dict:
@@ -789,8 +806,7 @@ def verify(codex_home: Path) -> dict:
     if mode not in ("active", "native"):
         raise InstallError("Installation manifest has an unsupported ladder mode")
     jev_provider = manifest.get("jev_provider", "typesafe")
-    if jev_provider not in ("typesafe", "openrouter"):
-        raise InstallError("Installation manifest has an unsupported Jev provider")
+    settings = decision_environment(jev_provider, manifest.get("jev_endpoint"), manifest.get("jev_model"))
     repo = Path(manifest.get("repo", ""))
     journal = None
     try:
@@ -829,7 +845,7 @@ def verify(codex_home: Path) -> dict:
             module = platform_module()
             plan = module.plan_service(repo, home, home / "jev-harness",
                                        {"JEV_LISTEN_PORT": str(manifest["port"]), "JEV_LADDER_MODE": mode,
-                                        "JEV_DECISION_PROVIDER": jev_provider})
+                                        "JEV_DECISION_PROVIDER": jev_provider, **settings})
             service_identity = (plan["service_id"] == journal["service_id"]
                                 and plan["definition_path"] == journal["definition_path"])
             owned_files = (service_identity and _managed_inventory(home, Path(plan["definition_path"]))
@@ -893,10 +909,9 @@ def rollback(codex_home: Path, os_name: str | None = None) -> dict:
     if mode not in ("active", "native"):
         raise InstallError("Manifest ladder mode changed; refusing rollback")
     jev_provider = manifest.get("jev_provider", "typesafe")
-    if jev_provider not in ("typesafe", "openrouter"):
-        raise InstallError("Manifest Jev provider changed; refusing rollback")
+    settings = decision_environment(jev_provider, manifest.get("jev_endpoint"), manifest.get("jev_model"))
     plan = module.plan_service(repo, home, home / "jev-harness",
-                               {"JEV_LADDER_MODE": mode, "JEV_DECISION_PROVIDER": jev_provider})
+                               {"JEV_LADDER_MODE": mode, "JEV_DECISION_PROVIDER": jev_provider, **settings})
     if plan["service_id"] != journal["service_id"] or plan["definition_path"] != journal["definition_path"]:
         raise InstallError("Service identity changed; refusing rollback")
     expected = _expected_managed(journal, home)
@@ -907,7 +922,9 @@ def rollback(codex_home: Path, os_name: str | None = None) -> dict:
         if not isinstance(source_paths, list) or len(source_paths) != 3:
             raise InstallError("Partial installation inputs cannot be proven")
         ladder, omni, key = (Path(value) if value is not None else None for value in source_paths)
-        ctx = inputs(repo, home, ladder, omni, key, journal["port"], os_name, jev_provider)
+        endpoint, model = (settings.get(name) for name in COMPATIBLE_ENV)
+        ctx = inputs(repo, home, ladder, omni, key, journal["port"], os_name, jev_provider,
+                     jev_endpoint=endpoint, jev_model=model)
         if _input_hashes(ctx) != journal.get("input_hashes"):
             raise InstallError("Partial installation inputs changed; refusing rollback")
         plan = ctx["service"]

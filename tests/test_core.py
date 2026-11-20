@@ -327,6 +327,32 @@ class InstallCoreTests(unittest.TestCase):
         self.assertEqual(env["JEV_DECISION_KEY_FILE"], str(self.key.resolve()))
         self.assertNotIn("TYPESAFE_API_KEY_FILE", env)
 
+    def test_compatible_gateway_is_bound_to_installation_and_resume(self):
+        options = {"jev_provider": "compatible", "jev_endpoint": "https://gateway.example/v1/decisions",
+                   "jev_model": "vendor/jev"}
+        with mock.patch.object(core, "doctor", return_value={"ready": True, "issues": []}), \
+             mock.patch.object(core, "_port_free", return_value=True), \
+             mock.patch.object(core, "_router_service_definition", return_value=None), \
+             mock.patch.object(core.subprocess, "run"), \
+             mock.patch("harness.platforms.macos.service_status", return_value={"installed": False, "active": False}), \
+             mock.patch("harness.platforms.macos.install_service", side_effect=RuntimeError("synthetic service failure")) as service:
+            with self.assertRaisesRegex(RuntimeError, "synthetic service failure"):
+                core.install(REPO, self.home, None, None, self.key, 4321, False, "macos", **options)
+            for field, changed in (("jev_endpoint", "https://other.example/v1/decisions"), ("jev_model", "other/jev")):
+                with self.subTest(field=field), self.assertRaisesRegex(core.InstallError, "identity differs"):
+                    core.resume(REPO, self.home, None, None, self.key, 4321, "macos", **{**options, field: changed})
+            service.assert_called_once()
+            service.side_effect = None
+            service.return_value = {"action": "install"}
+            self.assertTrue(core.resume(REPO, self.home, None, None, self.key, 4321, "macos", **options)["installed"])
+        manifest = json.loads((self.home / "jev-harness/manifest.json").read_text())
+        self.assertEqual({key: manifest[key] for key in options}, options)
+        env = service.call_args.args[0]["env_paths"]
+        self.assertEqual(env["JEV_DECISION_ENDPOINT"], options["jev_endpoint"])
+        self.assertEqual(env["JEV_DECISION_MODEL"], options["jev_model"])
+        self.assertEqual(env["JEV_DECISION_KEY_FILE"], str(self.key.resolve()))
+        self.assertNotIn("TYPESAFE_API_KEY_FILE", env)
+
     def test_native_verify_accepts_healthy_service_without_ladder(self):
         with mock.patch.object(core, "doctor", return_value={"ready": True, "issues": []}), \
              mock.patch.object(core, "_port_free", return_value=True), \

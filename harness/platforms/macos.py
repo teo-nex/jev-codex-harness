@@ -8,6 +8,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from server.decision_contract import COMPATIBLE_ENV, decision_environment
+
 
 SERVICE_ID = "ai.jev-codex-harness.router"
 MARKER = "jev-codex-harness:v1"
@@ -24,10 +26,9 @@ def _port_occupied(port):
 
 def _environment(codex_home, state_dir, env):
     provider = env.get("JEV_DECISION_PROVIDER", "typesafe")
-    if provider not in ("typesafe", "openrouter"):
-        raise ValueError("unsupported Jev decision provider")
+    settings = decision_environment(provider, *(env.get(name) for name in COMPATIBLE_ENV))
     if (provider == "typesafe" and "JEV_DECISION_KEY_FILE" in env
-            or provider == "openrouter" and "TYPESAFE_API_KEY_FILE" in env):
+            or provider != "typesafe" and "TYPESAFE_API_KEY_FILE" in env):
         raise ValueError("decision key path does not match provider")
     mode = env.get("JEV_LADDER_MODE", "active")
     if mode not in ("active", "native"):
@@ -39,7 +40,7 @@ def _environment(codex_home, state_dir, env):
               "MODEL_ROUTER_STATE_DIR": str(codex_home / "codex-router"),
               "CODEX_ROUTER_STATE_DIR": str(codex_home / "codex-router"),
               "JEV_LISTEN_PORT": str(env.get("JEV_LISTEN_PORT", "4321")),
-              "JEV_LADDER_MODE": mode, "JEV_DECISION_PROVIDER": provider}
+              "JEV_LADDER_MODE": mode, "JEV_DECISION_PROVIDER": provider, **settings}
     if mode == "active":
         values.update(JEV_LADDER_CONFIG=str(state_dir / "ladder-config.json"),
                       JEV_LADDER_STATE=str(state_dir / "ladder-state.json"))
@@ -56,7 +57,7 @@ def _environment(codex_home, state_dir, env):
                     raise ValueError(f"{key} is fixed by the selected Codex profile")
                 continue
             values[key] = value
-    forbidden = set(env) - set(PATH_ENV) - {"JEV_LISTEN_PORT", "JEV_LADDER_MODE", "JEV_DECISION_PROVIDER"}
+    forbidden = set(env) - set(PATH_ENV) - set(COMPATIBLE_ENV) - {"JEV_LISTEN_PORT", "JEV_LADDER_MODE", "JEV_DECISION_PROVIDER"}
     if forbidden:
         raise ValueError("unsupported service environment keys: " + ", ".join(sorted(forbidden)))
     return values

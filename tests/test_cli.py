@@ -28,6 +28,20 @@ class CLITests(unittest.TestCase):
         self.assertIsNone(doctor.call_args.args[4])
         self.assertEqual(doctor.call_args.kwargs["jev_provider"], "openrouter")
 
+    def test_compatible_gateway_requires_an_explicit_key_path_and_forwards_settings(self):
+        with mock.patch.dict(os.environ, {"JEV_DECISION_KEY_FILE": "/private/other-gateway.key"}, clear=True), \
+             mock.patch.object(cli.core, "doctor", return_value={"ready": True, "issues": []}) as doctor, \
+             redirect_stdout(io.StringIO()):
+            args = ["--jev-provider", "compatible", "--jev-endpoint", "https://gateway.example/judge",
+                    "--jev-model", "vendor/jev"]
+            cli.main([*args, "doctor"])
+            self.assertIsNone(doctor.call_args.args[4])
+            cli.main([*args, "--jev-key-file", "/private/selected.key", "doctor"])
+        self.assertEqual(doctor.call_args.args[4], Path("/private/selected.key"))
+        self.assertEqual(doctor.call_args.kwargs, {"jev_provider": "compatible",
+                                                   "jev_endpoint": "https://gateway.example/judge",
+                                                   "jev_model": "vendor/jev"})
+
     def test_onboard_requires_a_terminal(self):
         output = io.StringIO()
         with mock.patch.object(cli.sys.stdin, "isatty", return_value=False), \

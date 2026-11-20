@@ -15,7 +15,15 @@ const endpoints = {
   openrouter: 'https://openrouter.ai/api/alpha/decisions',
 };
 const provider = input.provider || 'typesafe';
-const endpoint = Object.hasOwn(endpoints, provider) ? endpoints[provider] : undefined;
+let endpoint = Object.hasOwn(endpoints, provider) ? endpoints[provider] : undefined;
+if (provider === 'compatible' && typeof input.endpoint === 'string') {
+  try {
+    const url = new URL(input.endpoint);
+    const local = ['127.0.0.1', '[::1]'].includes(url.hostname);
+    if (!url.username && !url.password && !url.search && !url.hash &&
+        (url.protocol === 'https:' || (local && url.protocol === 'http:'))) endpoint = url;
+  } catch {}
+}
 if (!endpoint) { process.stderr.write('unsupported Jev provider\n'); process.exit(2); }
 try {
   const response = await fetch(endpoint, {
@@ -27,7 +35,19 @@ try {
     process.stderr.write('provider HTTP ' + response.status + '\n');
     process.exit(1);
   }
-  const value = await response.json();
+  let value;
+  if (provider === 'compatible') {
+    const buffers = [];
+    let size = 0;
+    for await (const chunk of response.body) {
+      size += chunk.byteLength;
+      if (size > 256 * 1024) throw new Error('decision response too large');
+      buffers.push(chunk);
+    }
+    value = JSON.parse(Buffer.concat(buffers).toString('utf8'));
+  } else {
+    value = await response.json();
+  }
   if (!value || typeof value !== 'object' || !value.answers || typeof value.answers !== 'object')
     throw new Error('invalid provider response');
   process.stdout.write(JSON.stringify(value));

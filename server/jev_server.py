@@ -104,6 +104,8 @@ from request_budget import RequestBudget, AttemptClock, BudgetExceeded, ClientDi
 from validated_stream import ValidatedStream
 from provider_failure import classify_failure
 from reasoning_effort import resolve_model_reasoning_effort
+from decision_contract import (COMPATIBLE_ENV, DECISION_PROVIDERS, REQUEST_MODEL,
+                               compatible_model, decision_environment)
 
 HOME = os.path.expanduser("~")
 ENV_PATH = os.path.join(HOME, ".hermes", ".env")
@@ -129,10 +131,10 @@ OPENROUTER_JEV_MODEL = "typesafe/jev-1.13"
 
 def decision_provider():
     provider = os.environ.get("JEV_DECISION_PROVIDER", "typesafe")
-    if provider not in ("typesafe", "openrouter"):
+    if provider not in DECISION_PROVIDERS:
         raise ValueError("Unsupported Jev decision provider")
     return provider
-MODEL = "jev-latest"
+MODEL = REQUEST_MODEL
 
 
 # Generic ask surface (POST /ask): a thin typed pass-through to System One for
@@ -252,6 +254,21 @@ ENVELOPE_SCAN_CHARS = 200_000
 
 def load_key():
     """TYPESAFE_API_KEY: env files win (the process environment can be stale)."""
+    if decision_provider() == "compatible":
+        path = os.environ.get("JEV_DECISION_KEY_FILE")
+        if not path:
+            return ""
+        if os.path.islink(path):
+            raise PermissionError("Jev decision key file must not be a symlink")
+        fd = os.open(path, os.O_RDONLY | NOFOLLOW | getattr(os, "O_NONBLOCK", 0))
+        with os.fdopen(fd, "r", encoding="utf-8") as source:
+            if not private_regular(os.fstat(source.fileno()), path):
+                raise PermissionError("Jev decision key file must be private")
+            raw = source.read(4098)
+        value = raw.rstrip("\r\n")
+        if len(raw) == 4098 or not re.fullmatch(r"[!-~]{1,4096}", value):
+            raise ValueError("A single-line Jev decision key is required")
+        return value
     if decision_provider() == "openrouter":
         key_file = os.environ.get("JEV_DECISION_KEY_FILE", "").strip()
         if not key_file:
@@ -606,27 +623,46 @@ class _NoJevRedirect(urllib.request.HTTPRedirectHandler):
 
 def call_jev(key, state, questions=None, timeout=4.0):
     provider = decision_provider()
-    body = {"model": OPENROUTER_JEV_MODEL if provider == "openrouter" else MODEL, "state": state,
-            "questions": QUESTIONS if questions is None else questions}
+    endpoint, model = API, MODEL
+    if provider == "openrouter":
+        endpoint, model = OPENROUTER_DECISIONS_API, OPENROUTER_JEV_MODEL
+    elif provider == "compatible":
+        settings = decision_environment(provider, *(os.environ.get(name) for name in COMPATIBLE_ENV))
+        endpoint, model = (settings[name] for name in COMPATIBLE_ENV)
+    requested = QUESTIONS if questions is None else questions
+    body = {"model": model, "state": state, "questions": requested}
     node = _node_binary()
     helper = os.path.join(os.path.dirname(__file__), "jev_fetch.mjs")
     if node and os.path.isfile(helper):
-        result = subprocess.run([node, helper], input=json.dumps({
-            "key": key, "body": body, "provider": provider, "timeout_ms": int(timeout * 1000),
-        }), text=True, capture_output=True, timeout=timeout, check=False)
+        envelope = {"key": key, "body": body, "provider": provider, "timeout_ms": int(timeout * 1000)}
+        if provider == "compatible":
+            envelope["endpoint"] = endpoint
+        result = subprocess.run([node, helper], input=json.dumps(envelope),
+                                text=True, capture_output=True, timeout=timeout, check=False)
         if result.returncode != 0:
             raise RuntimeError((result.stderr or "Jev provider unavailable").strip()[:100])
-        return json.loads(result.stdout)
-    body = json.dumps(body).encode()
-    req = urllib.request.Request(
-        OPENROUTER_DECISIONS_API if provider == "openrouter" else API,
-        data=body,
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-        method="POST",
-    )
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoJevRedirect())
-    with opener.open(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+        answer = json.loads(result.stdout)
+    else:
+        req = urllib.request.Request(endpoint, data=json.dumps(body).encode(),
+                                     headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                                     method="POST")
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoJevRedirect())
+        with opener.open(req, timeout=timeout) as resp:
+            data = resp.read(ASK_MAX_BYTES + 1) if provider == "compatible" else resp.read()
+        if provider == "compatible" and len(data) > ASK_MAX_BYTES:
+            raise ValueError("Jev decision response is too large")
+        answer = json.loads(data.decode("utf-8"))
+    if provider == "compatible":
+        if not isinstance(answer, dict) or (answer.get("model") != model and not compatible_model(answer.get("model"))):
+            raise ValueError("Unexpected Jev decision model")
+        answers = answer.get("answers")
+        if not isinstance(answers, dict) or answers.keys() != requested.keys() or any(
+            not isinstance(answers[name], dict) or answers[name].get("type") != question.get("type")
+            for name, question in requested.items()
+        ):
+            raise ValueError("Invalid typed Jev decision answers")
+        return {**answer, "model": MODEL}
+    return answer
 
 
 def call_jev_routed(key, state, questions=None, timeout=4.0):
@@ -2116,7 +2152,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(400, {"error": {"message": error}})
         key = load_key()
         if not key:
-            return self._json(503, {"error": {"message": "TYPESAFE_API_KEY is not configured"}})
+            return self._json(503, {"error": {"message": "Jev decision key is not configured"}})
         t0 = time.time()
         try:
             answer = call_jev_routed(key, state, questions, timeout=ASK_TIMEOUT)

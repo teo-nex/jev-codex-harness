@@ -23,7 +23,7 @@ You need:
 - Codex CLI, Python 3.11+, Node.js 22.19+, npm, and a supported per-user service
   manager (`launchd`, `systemd --user`, or Windows Task Scheduler).
   The gateway environment needs CPython 3.10–3.14; uv can provide Python 3.12.
-- A TypeSafe or OpenRouter API key for Jev's routing decisions. The installer
+- An API key for TypeSafe, OpenRouter or a [compatible Jev gateway](docs/INSTALL.md#other-jev-gateways). The installer
   asks for it in a hidden terminal prompt and stores it outside this repository.
 - A fresh Codex profile and free service ports. If your intended profile or
   router is already in use, the agent should stop and explain the conflict.
@@ -48,7 +48,7 @@ Send the agent the repository link and this request:
 > do not silently pick another profile. Run the interactive `onboard` installer
 > for a fresh profile. Ask me whether I already have OmniRoute and let me choose
 > my provider order and exact model IDs. Let me enter
-> the TypeSafe or OpenRouter key only in the local hidden prompt, never in chat.
+> the Jev decision key only in the local hidden prompt, never in chat.
 > Afterwards, tell me what passed, what remains untested, and which steps I
 > must complete in Codex before calling the installation working.
 

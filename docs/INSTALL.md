@@ -22,7 +22,7 @@ Interactive first install on an otherwise free host:
 ```
 
 On Windows, use `./install.cmd onboard` in PowerShell. The wizard asks for a
-fresh Codex profile, `typesafe` or `openrouter` for Jev, the hidden decision
+fresh Codex profile, `typesafe`, `openrouter` or `compatible` for Jev, the hidden decision
 API key, and whether to use an **existing** OmniRoute gateway. It never
 installs OmniRoute or creates its accounts. Selecting OmniRoute requires
 a protected gateway-auth file; choose `create` to enter your provider/account
@@ -45,6 +45,35 @@ python3 -m harness.cli verify
 For OpenRouter Jev, use `--jev-provider openrouter` with a protected OpenRouter
 key file. The server calls OpenRouter's [Decisions API](https://openrouter.ai/docs/api/api-reference/alphadecisions/submit-a-decisions-request)
 with the pinned `typesafe/jev-1.13` model. This account may incur API charges.
+
+### Other Jev gateways
+
+Choose `compatible` in `onboard` and enter the gateway's full decision endpoint
+URL, the model ID it accepts, and the API key in the hidden prompt. For
+non-interactive use, pass the same settings to `doctor`, `install`, and
+`resume` using a protected key file.
+
+```sh
+./install.sh --jev-provider compatible \
+  --jev-endpoint https://gateway.example/v1/decisions \
+  --jev-model vendor/jev-model --jev-key-file /private/jev.key doctor
+```
+
+The gateway must accept `POST` with `Authorization: Bearer <key>` and JSON
+`{model, state, questions}`, and return JSON `{model, answers, usage?}`. Each
+answer is keyed by question name and includes its matching type and typed
+value. For example, a `choice` answer includes `type: "choice"`, the selected
+`choice`, and its `confidence`. The response model must match the configured
+ID or be a recognized Jev v1 identity. Paths and model IDs are provider-specific.
+A model listed only in a chat or Responses API does not demonstrate this
+contract. Installed clients continue to receive the stable Jev model identity.
+
+Use HTTPS for remote gateways or HTTP with a literal loopback address
+(`127.0.0.1` or `[::1]`). Redirects are refused. Supply a URL without embedded
+credentials, a query or a fragment. The configured gateway receives Jev
+decision state, including bounded task or tool context, so select a gateway
+you trust with that data. Verify the actual gateway with the typed decision
+check during `onboard` or with `verify --live`.
 
 To enable the external ladder, add both `--ladder-config /private/ladder.json`
 and `--omniroute-auth-file /private/omniroute-auth.json` to `doctor`, `install`,

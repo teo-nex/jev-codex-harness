@@ -41,8 +41,8 @@ browser actions, context compaction or model routing in that client.
 
 On a fresh host/profile, run `doctor` before asking for credentials. For an
 interactive setup, use `./install.sh onboard` on macOS/Linux or
-`./install.cmd onboard` on Windows. The wizard collects a TypeSafe or OpenRouter
-Jev key in a local hidden prompt and optionally asks for an **existing** protected
+`./install.cmd onboard` on Windows. The wizard collects a Jev API key in a local hidden prompt for TypeSafe, OpenRouter
+or a compatible gateway and optionally asks for an **existing** protected
 OmniRoute gateway-auth file. It can create a private provider configuration from
 the user's chosen order and model IDs, or reuse an existing protected file.
 It does not install OmniRoute or create
