@@ -478,9 +478,17 @@ class InstallCoreTests(unittest.TestCase):
         with mock.patch.object(core, "merge_config", side_effect=RuntimeError("interrupted after reload")):
             with self.assertRaisesRegex(RuntimeError, "interrupted after reload"):
                 self._installed()
-        self.assertEqual(json.loads((self.home / "jev-harness/journal.json").read_text())["phase"], "router_reloaded")
+        journal_path = self.home / "jev-harness/journal.json"
+        journal = json.loads(journal_path.read_text())
+        self.assertEqual(journal["phase"], "router_reloaded")
+        log = self.home / "codex-router/router.log"
+        log.parent.mkdir(parents=True, exist_ok=True)
+        log.write_text("before restart\n")
+        journal["owned"][str(log.relative_to(self.home))] = core._digest(log)
+        journal_path.write_text(json.dumps(journal))
+        log.write_text("before restart\nafter restart\n")
         self._installed()
-        self.assertEqual(json.loads((self.home / "jev-harness/journal.json").read_text())["phase"], "complete")
+        self.assertEqual(json.loads(journal_path.read_text())["phase"], "complete")
 
     def test_reviewed_oauth_change_can_resume_without_adopting_other_edits(self):
         with self.assertRaises(core.subprocess.CalledProcessError):

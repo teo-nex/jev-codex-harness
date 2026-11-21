@@ -29,7 +29,8 @@ class CLITests(unittest.TestCase):
         self.assertEqual(doctor.call_args.kwargs["jev_provider"], "openrouter")
 
     def test_compatible_gateway_requires_an_explicit_key_path_and_forwards_settings(self):
-        with mock.patch.dict(os.environ, {"JEV_DECISION_KEY_FILE": "/private/other-gateway.key"}, clear=True), \
+        with mock.patch.dict(os.environ, {"JEV_DECISION_KEY_FILE": "/private/other-gateway.key",
+                                          "CODEX_HOME": str(Path(tempfile.gettempdir()) / "codex")}, clear=True), \
              mock.patch.object(cli.core, "doctor", return_value={"ready": True, "issues": []}) as doctor, \
              redirect_stdout(io.StringIO()):
             args = ["--jev-provider", "compatible", "--jev-endpoint", "https://gateway.example/judge",

@@ -163,7 +163,7 @@ class CompatibleGatewayTests(unittest.TestCase):
 
     def test_bad_endpoints_are_rejected_before_transport(self):
         for url in ("http://example.test/decide", "http://127.0.0.2/decide",
-                    "https://user:secret@example.test/decide", "https://example.test/decide?secret=y",
+                    "https://user:secret@127.0.0.1/decide", "https://example.test/decide?secret=y",
                     "https://example.test/decide#fragment", "https://example.test",
                     "https://[::1]other.test/decide", "https://example.test:65536/decide"):
             with self.subTest(url=url), mock.patch.dict(jev.os.environ, {**self.env, "JEV_DECISION_ENDPOINT": url}), \

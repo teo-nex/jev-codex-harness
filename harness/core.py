@@ -328,18 +328,25 @@ def _digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+_ROUTER_SERVICE_LOG = Path("codex-router/router.log")
+
+
 def _inventory(home: Path, definition: Path) -> dict[str, str]:
     """Strict full-profile checkpoint only while installation is incomplete."""
     result = {}
     for path in home.rglob("*"):
         # Codex creates disposable tmp/arg0 symlinks during router setup.
         # They are runtime scratch, not installation-owned profile state.
-        if path.relative_to(home).parts[0] == "tmp":
+        relative = path.relative_to(home)
+        if relative.parts[0] == "tmp":
             continue
         if path.is_symlink():
             raise InstallError(f"Symlink in managed profile: {path}")
+        # The Windows service keeps appending to this log across checkpoints.
+        if relative == _ROUTER_SERVICE_LOG:
+            continue
         if path.is_file() and path.name not in {"journal.json", "manifest.json"}:
-            result[str(path.relative_to(home))] = _digest(path)
+            result[str(relative)] = _digest(path)
     if definition.is_file():
         result["@service-definition"] = _digest(definition)
     return result
@@ -485,12 +492,19 @@ def _read_journal(home: Path) -> dict:
     return data
 
 
+def _expected_inventory(journal: dict) -> dict | None:
+    owned = journal.get("owned")
+    if not isinstance(owned, dict):
+        return None
+    return {name: digest for name, digest in owned.items() if name != str(_ROUTER_SERVICE_LOG)}
+
+
 def _check_checkpoint(home: Path, plan: dict, journal: dict) -> None:
     """Refuse an interrupted install if any managed bytes changed since its checkpoint."""
     inventory = (_managed_inventory if journal["phase"] in _ROLLBACK_PHASES | _LIVE_INSTALL_PHASES
                  else _inventory)
     expected = (_expected_managed(journal, home) if journal["phase"] in _ROLLBACK_PHASES
-                else journal.get("owned"))
+                else _expected_inventory(journal))
     current = inventory(home, Path(plan["definition_path"]))
     if journal["phase"] == "service_pending":
         _check_service_intent(plan, journal)
@@ -513,7 +527,7 @@ def _review_oauth_change(home: Path, plan: dict, journal: dict, expected_sha256:
     if definition and _digest(Path(definition)) != journal.get("router_definition_sha256"):
         raise InstallError("Embedded router service changed since installation checkpoint")
     current = _inventory(home, Path(plan["definition_path"]))
-    previous = journal.get("owned", {})
+    previous = _expected_inventory(journal) or {}
     changed = {name for name in current.keys() | previous.keys() if current.get(name) != previous.get(name)}
     if changed != {"auth.json"} or current.get("auth.json") != expected_sha256:
         raise InstallError("OAuth review did not match the sole auth.json change; exact review required")
