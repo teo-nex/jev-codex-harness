@@ -46,3 +46,40 @@ target's actual process and config, not only files or localhost health.
 Add the adapter's tests and a support-matrix row before describing it as
 bundled. Until then the agent-first installer reports `UNSUPPORTED_TARGET` or
 `PARTIAL` for that client.
+
+## Preview model routing from DeepSeek Harness and Pi
+
+The routing configuration uses an already running Jev profile. From the repo,
+print a config for the target client with the Jev service's port.
+
+```sh
+./install.sh --port 4319 client-config dsh
+./install.sh --port 4319 client-config pi
+```
+
+| Client | Where to merge the printed config | Local credential reference |
+| --- | --- | --- |
+| DeepSeek Harness 0.2.2-rc.5 | Merge `config.providers.jev` into the `llm-pi-ai` entry in the profile's `cordis.patch.yml`. A fresh profile can load the preview with `--patch`. | `JEV_LOCAL_CALLER_KEY` in the launch environment or the interactive client’s credential store |
+| Pi | `providers.jev` in `$PI_CODING_AGENT_DIR/models.json` (default directory `~/.pi/agent`) | `JEV_LOCAL_CALLER_KEY` in the environment of the Pi process |
+
+Set that reference to the **local** caller capability from the Jev profile's
+`codex-router/generic-provider-credentials/jev.key` file. Never copy it into the
+model config. Select provider `jev` and model `auto` in the client. For a one-shot DSH run, include an
+`agent-default-model` patch entry with `config: {provider: jev, model: auto}`
+in the invocation's overlay. DSH overlays replace a plugin entry’s whole
+configuration. Merge the provider into the existing entry if your profile
+already has an `llm-pi-ai` configuration. In Pi,
+`--provider jev --model auto` makes that selection for a single launch.
+
+The request goes to the local Jev service using OpenAI Responses. The service's
+configured execution routes determine which models can actually serve it. To
+keep execution on OpenAI, restrict those routes, including fallback, to
+OpenAI models. Native subscription models require the owner's explicit session
+sharing for the Jev profile. API-key access needs an allowed OpenAI route
+configured on the execution gateway. The Jev decision credential is configured
+separately.
+
+These previews cover model routing only. Target-native tool approval, Jev
+Tool Use review, browser/computer actions, workers and Jev-assisted compaction
+still have separate acceptance requirements. The preview command creates no
+files and does not change any existing client.

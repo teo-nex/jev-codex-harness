@@ -12,6 +12,7 @@ from pathlib import Path
 from server.decision_contract import DECISION_PROVIDERS
 
 from . import core
+from . import client_config
 from . import live_verify
 from . import onboard
 from . import routes
@@ -35,6 +36,8 @@ def parser() -> argparse.ArgumentParser:
                      type=Path)
     app.add_argument("--port", type=int, default=4319)
     sub = app.add_subparsers(dest="command", required=True)
+    client = sub.add_parser("client-config", help="print a credential-free Jev routing config")
+    client.add_argument("target", choices=("dsh", "pi"))
     native_session = sub.add_parser("session", help="inspect or explicitly configure this profile's ChatGPT session sharing")
     native_session.add_argument("session_action", choices=("status", "enable", "disable"))
     native_session.add_argument("--allow-sharing", action="store_true",
@@ -81,6 +84,9 @@ def main(argv: list[str] | None = None, repo: Path | None = None) -> int:
             args.typesafe_key_file = Path(os.environ[key_name])
     repo = repo or Path(__file__).resolve().parents[1]
     try:
+        if args.command == "client-config":
+            sys.stdout.write(client_config.render(args.target, args.port))
+            return 0
         if args.command == "session":
             result = session.manage(repo, args.codex_home, args.session_action,
                                     allow_sharing=args.allow_sharing)

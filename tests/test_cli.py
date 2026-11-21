@@ -42,6 +42,24 @@ class CLITests(unittest.TestCase):
                                                    "jev_endpoint": "https://gateway.example/judge",
                                                    "jev_model": "vendor/jev"})
 
+    def test_client_config_prints_provider_reference_without_key(self):
+        for target in ("dsh", "pi"):
+            with self.subTest(target=target), redirect_stdout(io.StringIO()) as output, \
+                 mock.patch.dict(os.environ, {"JEV_LOCAL_CALLER_KEY": "private-fixture-key"}):
+                self.assertEqual(cli.main(["--port", "5432", "client-config", target]), 0)
+            result = output.getvalue()
+            self.assertNotIn("private-fixture-key", result)
+            if target == "pi":
+                provider = json.loads(result)["providers"]["jev"]
+                self.assertEqual(provider["baseUrl"], "http://127.0.0.1:5432/v1")
+                self.assertEqual(provider["apiKey"], "$JEV_LOCAL_CALLER_KEY")
+                self.assertEqual(provider["models"][0]["id"], "auto")
+                self.assertTrue(provider["authHeader"])
+            else:
+                self.assertIn('baseURL: "http://127.0.0.1:5432/v1"', result)
+                self.assertIn('apiKeyEnv: "JEV_LOCAL_CALLER_KEY"', result)
+                self.assertIn('- id: "auto"', result)
+
     def test_onboard_requires_a_terminal(self):
         output = io.StringIO()
         with mock.patch.object(cli.sys.stdin, "isatty", return_value=False), \
