@@ -240,6 +240,13 @@ ENVELOPE_TAGS = (
 ENVELOPE_RX = re.compile(
     r"<(%s)(?:\s[^<>]*)?>.*?</\1\s*>" % "|".join(re.escape(t) for t in ENVELOPE_TAGS),
     re.S)
+# DSH appends a session reminder as user text in headless mode. Match its
+# session header so ordinary user text mentioning the tag remains routable.
+DSH_SESSION_REMINDER_RX = re.compile(
+    r"(?m)^[ \t]*<system-reminder>[ \t]*\r?\n"
+    r"The following information describes your current session:\r?\n"
+    r"(?s:.*?)</system-reminder>[ \t]*(?=\r?$)"
+)
 # `<codex_internal_context source="goal">` is the one envelope whose body is a
 # work objective ("Continue working toward the active thread goal. / The
 # objective below is ..."), so it is what an envelope-only turn falls back to.
@@ -760,7 +767,7 @@ def _content_text(content):
 
 
 def strip_envelopes(text):
-    """Codex's own wrapper blocks, out of the text the judge reads.
+    """Remove known client wrapper blocks from the text the judge reads.
 
     Whole blocks go: their bodies describe the harness, not the work, and they
     are by far the longest part of a turn. When a turn holds nothing else, the
@@ -774,7 +781,7 @@ def strip_envelopes(text):
         scanned = text
     else:
         scanned = text[:ENVELOPE_SCAN_CHARS] + "\n" + text[-ENVELOPE_SCAN_CHARS:]
-    stripped = ENVELOPE_RX.sub("\n", scanned).strip()
+    stripped = DSH_SESSION_REMINDER_RX.sub("\n", ENVELOPE_RX.sub("\n", scanned)).strip()
     if stripped:
         return stripped
     goal = GOAL_BODY_RX.search(scanned)

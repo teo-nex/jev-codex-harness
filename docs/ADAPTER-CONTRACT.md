@@ -79,6 +79,13 @@ sharing for the Jev profile. API-key access needs an allowed OpenAI route
 configured on the execution gateway. The Jev decision credential is configured
 separately.
 
+Jev ignores DSH session reminders when extracting the task for model selection.
+The execution model still receives the original DSH context.
+
+The offline acceptance test runs a real DSH and Pi client against a local
+Responses fixture for Luna/low, Terra/medium and Sol/high. It supplies each
+decision explicitly to verify the routing and streaming transport.
+
 These previews cover model routing only. Target-native tool approval, Jev
 Tool Use review, browser/computer actions, workers and Jev-assisted compaction
 still have separate acceptance requirements. The preview command creates no

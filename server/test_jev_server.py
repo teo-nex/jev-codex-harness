@@ -416,6 +416,21 @@ class JevTaskInput(unittest.TestCase):
         self.assertIn("relance le backtest", task)
         self.assertNotIn("environment_context", task)
 
+    def test_dsh_session_reminder_does_not_hide_the_user_request(self):
+        reminder = ("<system-reminder>\n"
+                    "The following information describes your current session:\n\n"
+                    'Current working directory: "/tmp/dsh-project".\n'
+                    "Current DSH file policy: read-only.\n"
+                    "</system-reminder>")
+        self.assertEqual(self.state([self.user_item(self.ASK), self.user_item(reminder)]),
+                         {"task": self.ASK, "step": "user_turn"})
+        self.assertEqual(self.task(self.ASK + "\n\n" + reminder), self.ASK)
+        self.assertEqual(self.task(reminder), "")
+
+    def test_an_unrecognized_system_reminder_is_retained(self):
+        user_text = "<system-reminder>\nExample syntax the user wants to test.\n</system-reminder>"
+        self.assertEqual(self.task(user_text), user_text)
+
     def test_a_goal_only_turn_keeps_the_objective_and_loses_the_tags(self):
         task = self.task(self.GOAL)
         self.assertIn("Continue working toward the active thread goal.", task)

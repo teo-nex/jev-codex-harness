@@ -15,28 +15,35 @@ from unittest import mock
 from harness.client_config import render
 import jev_server as jev
 from recovery_acceptance import FixtureServer, MARKER, close_servers, response_stream
-from routing_policy import SOL, route_choice
+from routing_policy import LUNA, SOL, TERRA, route_choice
 
 
 class ExternalClientTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("pi"), "Pi executable unavailable")
     def test_pi_receives_routed_stream(self):
-        self.assert_routed_stream("pi", shutil.which("pi"))
+        self.assert_routing_matrix("pi", shutil.which("pi"))
 
     @unittest.skipUnless(os.environ.get("JEV_TEST_DSH") or shutil.which("dsh"), "DSH executable unavailable")
     def test_dsh_receives_routed_stream(self):
-        self.assert_routed_stream("dsh", os.environ.get("JEV_TEST_DSH") or shutil.which("dsh"))
+        self.assert_routing_matrix("dsh", os.environ.get("JEV_TEST_DSH") or shutil.which("dsh"))
 
-    def assert_routed_stream(self, target, executable):
+    def assert_routing_matrix(self, target, executable):
+        cases = ((LUNA, "low"), (TERRA, "medium"), (SOL, "high"))
+        for model, effort in cases:
+            with self.subTest(model=model, effort=effort):
+                self.assert_routed_stream(target, executable, model, effort)
+
+    def assert_routed_stream(self, target, executable, model, effort):
         requests = []
         decisions = []
         records = []
         recorded = threading.Event()
 
         def decide(_key, state, **_):
+            # A deterministic fixture verifies transport, independently from judge quality.
             decisions.append(state)
             return {"answers": {name: {"type": "choice", "choice": choice, "confidence": 1}
-                                for name, choice in route_choice(SOL, "high").items()}}
+                                for name, choice in route_choice(model, effort).items()}}
 
         def record(row):
             records.append(row)
@@ -45,7 +52,7 @@ class ExternalClientTests(unittest.TestCase):
         class OpenAIFixture(BaseHTTPRequestHandler):
             def do_POST(self):
                 requests.append((self.path, json.loads(self.rfile.read(int(self.headers["Content-Length"])))))
-                data = response_stream().replace(b"fixture/model-b", SOL.encode())
+                data = response_stream().replace(b"fixture/model-b", model.encode())
                 self.send_response(200)
                 self.send_header("Content-Type", "text/event-stream")
                 self.send_header("Content-Length", str(len(data)))
@@ -103,7 +110,8 @@ class ExternalClientTests(unittest.TestCase):
             self.assertIn(MARKER, process.stdout)
             self.assertTrue(recorded.wait(2))
             self.assertEqual(len(decisions), 1)
+            self.assertEqual(decisions[0]["task"], task)
             self.assertEqual(len(requests), 1)
-            self.assertEqual(requests[0][1]["model"], SOL)
-            self.assertEqual(requests[0][1]["reasoning"]["effort"], "high")
+            self.assertEqual(requests[0][1]["model"], model)
+            self.assertEqual(requests[0][1]["reasoning"]["effort"], effort)
             self.assertEqual(records[0]["decision_source"], "jev")
