@@ -16,6 +16,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from harness.idle_compact import relay
 
+FOLLOWUP_PROMPT = "Return the remembered fact"
+FOLLOWUP_RESPONSE = "IDLE_FOLLOWUP_OK: IDLE_FACT_42"
+
 
 def response_stream(text, index, model):
     item = {"id": f"msg_{index}", "type": "message", "role": "assistant", "status": "completed",
@@ -75,7 +78,7 @@ async def exercise(executable, work, model, requests=None):
         if reports[-1]["event"] != "compact_completed":
             raise AssertionError(reports)
         turn_done.clear()
-        await rpc("turn/start", {"threadId": tid, "input": [{"type": "text", "text": "Return the remembered fact"}]})
+        await rpc("turn/start", {"threadId": tid, "input": [{"type": "text", "text": FOLLOWUP_PROMPT}]})
         await asyncio.wait_for(turn_done.wait(), 20)
         # Ack isn't acceptance: inspect the native item and lifecycle, then
         # prove the same thread can perform its next normal turn.
@@ -130,11 +133,12 @@ async def exercise_tui(executable, work, model, requests):
                     return_offset = len(output)
                     # A burst containing text+Enter may be treated as a paste
                     # by the real TUI. Submit Enter as a separate key event.
-                    os.write(master, b"Return the remembered fact")
+                    os.write(master, FOLLOWUP_PROMPT.encode())
                     await asyncio.sleep(0.2)
                     os.write(master, b"\r")
                     returned = True
-                if returned and b"IDLE_FACT_42" in output[return_offset:]:
+                # A redraw can reprint the original fact before Enter is handled.
+                if returned and FOLLOWUP_RESPONSE.encode() in output[return_offset:]:
                     return {"model": model, "ok": True, "native_tui": True}
             except BlockingIOError:
                 pass
@@ -167,7 +171,8 @@ def run_case(executable, template, model, exercise_case=exercise):
         def do_POST(self):
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             requests.append(body)
-            data = response_stream("IDLE_FACT_42", len(requests), model)
+            text = FOLLOWUP_RESPONSE if FOLLOWUP_PROMPT in json.dumps(body.get("input")) else "IDLE_FACT_42"
+            data = response_stream(text, len(requests), model)
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Content-Length", str(len(data)))
@@ -199,7 +204,7 @@ def run_case(executable, template, model, exercise_case=exercise):
                 assert len(requests) == 3, len(requests)
             # The interactive client may additionally request a session title.
             # Inspect the actual follow-up prompt, not an incidental title call.
-            followups = [r for r in requests if "Return the remembered fact" in json.dumps(r.get("input"))]
+            followups = [r for r in requests if FOLLOWUP_PROMPT in json.dumps(r.get("input"))]
             assert followups, "No provider input for the actual follow-up turn"
             assert "IDLE_FACT_42" in json.dumps(followups[0].get("input")), "Fact absent after compaction"
             return {**result, "provider_requests": len(requests), "fact_carried": True}
