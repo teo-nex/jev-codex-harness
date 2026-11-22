@@ -220,7 +220,7 @@ class GatewayTests(unittest.TestCase):
             env.update({
                 "HOME": root, "USERPROFILE": root, "CLAUDE_CONFIG_DIR": root,
                 "ANTHROPIC_BASE_URL": f"http://127.0.0.1:{self.gateway.server_port}",
-                "ANTHROPIC_API_KEY": CALLER_KEY, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+                "ANTHROPIC_AUTH_TOKEN": CALLER_KEY, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
                 "DISABLE_AUTOUPDATER": "1", "CLAUDE_CODE_GATEWAY_HINT_HEADERS": "1",
             })
             for task, tier in (("Tiny", LUNA), ("Routine", TERRA), ("Hard", SOL)):

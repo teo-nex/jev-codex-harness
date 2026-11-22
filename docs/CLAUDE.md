@@ -49,6 +49,10 @@ side. The gateway takes no Claude subscription login or OAuth tokens.
 
 Set the gateway address and the local client's gateway key in the environment
 for one CLI launch. The example reads the key from the protected client file.
+Set both variables together. `ANTHROPIC_BASE_URL` alone can leave a saved
+Claude.ai subscription active as the request credential. With both variables
+set, Claude Code uses the local gateway key for this launch. Regular launches
+can continue using the saved subscription.
 
 ```sh
 ANTHROPIC_BASE_URL=http://127.0.0.1:4322 \
@@ -95,6 +99,7 @@ These are configuration steps for the Desktop preview. Validate Chat, Cowork,
 and Code separately in the installed app before relying on those surfaces.
 
 - [Anthropic's Claude Code gateway guide](https://code.claude.com/docs/en/llm-gateway-connect)
+- [How Claude Code handles subscriptions and gateways](https://code.claude.com/docs/en/llm-gateway#subscriptions-and-gateways)
 - [Anthropic's Claude Desktop gateway guide](https://claude.com/docs/third-party/claude-desktop/gateway)
 - [Anthropic's authentication and credential use rules](https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use)
 
