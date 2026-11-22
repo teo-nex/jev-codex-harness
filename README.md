@@ -6,12 +6,13 @@ This project lets a coding agent set up Jev routing for **Codex**. Jev can choos
 a model and reasoning depth for a task when you select `jev/auto`; you can still
 select a model yourself. The repository includes an installer, an embedded
 router, and checks that report what actually worked on your computer.
+The [Claude routing preview](docs/CLAUDE.md) connects Claude Code to Haiku,
+Sonnet, Opus, and Fable using your own Claude Console API key.
 
 **Current status: public alpha.** The installer supports a *fresh Codex profile*
 on macOS, Linux, and Windows. It cannot migrate an existing profile or replace
 an existing router. An agent may run inside Codex, Claude Code, Gemini CLI, or
-another coding environment, but the installed integration currently targets
-Codex only.
+another coding environment. The full agent-first installer targets Codex.
 
 The current source release is [v0.1.0-alpha.1](https://github.com/teo-nex/jev-codex-harness/releases/tag/v0.1.0-alpha.1).
 See the [changelog](CHANGELOG.md) for routing changes and verification limits.

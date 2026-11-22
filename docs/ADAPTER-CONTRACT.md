@@ -47,6 +47,16 @@ Add the adapter's tests and a support-matrix row before describing it as
 bundled. Until then the agent-first installer reports `UNSUPPORTED_TARGET` or
 `PARTIAL` for that client.
 
+## Preview native Claude routing
+
+The [Claude routing gateway](CLAUDE.md) connects Claude Code and provides
+settings for the Claude Desktop preview. It uses Jev's typed decision service
+and a caller-owned Claude Console API key. The execution protocol is native
+Anthropic Messages. The preview covers model routing and the native tool
+round trip. Claude Code retains control of permissions, and Jev-specific
+review hooks, browser/computer control, workers, and compaction are outside
+this adapter's scope.
+
 ## Preview model routing from DeepSeek Harness and Pi
 
 The routing configuration uses an already running Jev profile. From the repo,
