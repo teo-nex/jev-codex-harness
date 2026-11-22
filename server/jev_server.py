@@ -628,13 +628,17 @@ class _NoJevRedirect(urllib.request.HTTPRedirectHandler):
         raise ValueError("Jev provider redirect refused")
 
 
-def call_jev(key, state, questions=None, timeout=4.0):
-    provider = decision_provider()
+def call_jev(key, state, questions=None, timeout=4.0, *, provider_config=None):
+    if provider_config is None:
+        provider = decision_provider()
+        configured = tuple(os.environ.get(name) for name in COMPATIBLE_ENV)
+    else:
+        provider, *configured = provider_config
     endpoint, model = API, MODEL
     if provider == "openrouter":
         endpoint, model = OPENROUTER_DECISIONS_API, OPENROUTER_JEV_MODEL
     elif provider == "compatible":
-        settings = decision_environment(provider, *(os.environ.get(name) for name in COMPATIBLE_ENV))
+        settings = decision_environment(provider, *configured)
         endpoint, model = (settings[name] for name in COMPATIBLE_ENV)
     requested = QUESTIONS if questions is None else questions
     body = {"model": model, "state": state, "questions": requested}
@@ -672,10 +676,15 @@ def call_jev(key, state, questions=None, timeout=4.0):
     return answer
 
 
-def call_jev_routed(key, state, questions=None, timeout=4.0):
+def call_jev_routed(key, state, questions=None, timeout=4.0, *, provider_config=None):
     """One typed Jev decision through the configured provider."""
-    result = call_jev(key, state, questions, timeout=timeout)
-    if decision_provider() == "openrouter" and isinstance(result, dict):
+    if provider_config is None:
+        result = call_jev(key, state, questions, timeout=timeout)
+        provider = decision_provider()
+    else:
+        result = call_jev(key, state, questions, timeout=timeout, provider_config=provider_config)
+        provider = provider_config[0]
+    if provider == "openrouter" and isinstance(result, dict):
         if not str(result.get("model") or "").startswith("typesafe/jev-1.13"):
             raise ValueError("Unexpected OpenRouter decision model")
         # Local clients keep one stable model identity and rubric cache key.

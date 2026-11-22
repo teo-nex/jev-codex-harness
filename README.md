@@ -17,7 +17,16 @@ another coding environment. The full agent-first installer targets Codex.
 The current source release is [v0.1.0-alpha.1](https://github.com/teo-nex/jev-codex-harness/releases/tag/v0.1.0-alpha.1).
 See the [changelog](CHANGELOG.md) for routing changes and verification limits.
 
-## Before you start
+## Install for Claude Code
+
+Open this repository in your current Claude Code session and say **“Install
+Jev for Claude Code.”** The agent follows [CLAUDE.md](CLAUDE.md).
+You can also run `./install.sh claude` on macOS/Linux or `install.cmd claude` on
+Windows. The first launch asks for a Claude Console key and a Jev decision key
+if Jev isn't already running on your machine. After setup the same command
+opens Claude Code with Jev Auto in your current profile. [Claude quickstart](docs/CLAUDE.md)
+
+## Before installing for Codex
 
 You need:
 

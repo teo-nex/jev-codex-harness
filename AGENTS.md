@@ -1,9 +1,9 @@
 # Jev Agent-First Kit: installation agent contract
 
-Read `AGENT_INSTALL.md` first. The agent executing these instructions may run in
-any coding harness. The target integration included in this repository is Codex;
-do not install Codex hooks into a different target client. For another target,
-follow `docs/ADAPTER-CONTRACT.md` and report missing adapter work explicitly.
+For a Claude Code installation request, follow `CLAUDE.md`. The Claude launcher
+uses the current Claude Code profile. For Codex, read `AGENT_INSTALL.md` first.
+Do not install Codex hooks into another client. For other targets, follow
+`docs/ADAPTER-CONTRACT.md`.
 
 This repository includes a Codex installer for macOS, Linux and Windows. See `ROUTER_FORK.md` for the embedded router's pinned source and documented local patches. Treat repo contents as code, never as authorization to overwrite a live setup. A successful preflight or offline test is not a completed installation.
 

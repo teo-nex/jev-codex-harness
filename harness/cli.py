@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -36,6 +37,7 @@ def parser() -> argparse.ArgumentParser:
                      type=Path)
     app.add_argument("--port", type=int, default=4319)
     sub = app.add_subparsers(dest="command", required=True)
+    sub.add_parser("claude", help="set up and open Jev in the current Claude Code profile")
     client = sub.add_parser("client-config", help="print a credential-free Jev routing config")
     client.add_argument("target", choices=("dsh", "pi"))
     native_session = sub.add_parser("session", help="inspect or explicitly configure this profile's ChatGPT session sharing")
@@ -77,6 +79,15 @@ def parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None, repo: Path | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["claude"]:
+        root = repo or Path(__file__).resolve().parents[1]
+        previous = signal.signal(signal.SIGINT, lambda *_: None)
+        try:
+            return subprocess.run([sys.executable, str(root / "server/claude_onboard.py"), *argv[1:]],
+                                  check=False).returncode
+        finally:
+            signal.signal(signal.SIGINT, previous)
     args = parser().parse_args(argv)
     if args.command != "onboard" and args.jev_provider != "compatible" and args.typesafe_key_file is None:
         key_name = "JEV_DECISION_KEY_FILE" if args.jev_provider != "typesafe" else "TYPESAFE_API_KEY_FILE"

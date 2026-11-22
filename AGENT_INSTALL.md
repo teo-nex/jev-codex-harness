@@ -1,8 +1,8 @@
 # Agent-first installation protocol
 
 This file is the entry point for **the agent doing the installation**. That
-agent may run in any coding harness. The only complete **target client** adapter
-bundled here is Codex. Read `AGENTS.md` for its concrete commands and
+agent may run in any coding harness. Read `AGENTS.md` for Codex installation
+or `CLAUDE.md` for the Claude Code launcher. Read
 `docs/ADAPTER-CONTRACT.md` before building an adapter for another target.
 
 ## 1. Discover before changing anything
@@ -30,6 +30,7 @@ an installed client; remove only its identified, owned temporary artifacts.
 | --- | --- | --- |
 | Codex, fresh profile | `AGENTS.md` and `docs/INSTALL.md` | Install after preflight; claim working only after client and live checks below. |
 | Codex, existing profile/router | Read-only inventory and reviewed migration plan | The current installer intentionally refuses takeover. Report `BLOCKED_MIGRATION` until a separate scoped migration is implemented and verified. |
+| Claude Code, current profile | [Claude quickstart](docs/CLAUDE.md) | Use the Claude launcher and report local setup and live inference separately. |
 | Another client | `docs/ADAPTER-CONTRACT.md` | Implement a client-specific adapter with tests if the user requested this target. Report capabilities without an adapter as `UNSUPPORTED`, never as installed. |
 
 The Jev decision service can recommend a model, capability or UI element. The

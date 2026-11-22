@@ -17,7 +17,7 @@ as verified, blocked, unsupported or untested on the target host.
 | Optional idle compact controller | Native synthetic CLI lifecycle tested locally; desktop integration not enabled | Portable controller; hosted native result in CI | Portable controller; hosted native result in CI |
 | CanvasTTY browser broker | Optional when helper exists | Unavailable | Unavailable |
 | Hosted fresh-profile install smoke (synthetic key; no live provider) | Passed in CI | Passed in CI | Passed in CI |
-| [Claude Code routing preview](CLAUDE.md) | Installed CLI with isolated profile, fixture-backed three tiers and tool round trip; direct API-key verification pending | Fixture suite; installed CLI verification pending | Fixture suite; installed CLI verification pending |
+| [Claude Code routing preview](CLAUDE.md) | Current-profile launcher verified against fixture APIs with installed Claude Code; direct API-key verification pending | Fixture suite; installed CLI verification pending | Fixture suite; installed CLI verification pending |
 | Live first install with owner credentials and completed model response | Pending | Pending | Pending |
 
 Python 3.11+, Node.js 22.19+, npm and Codex CLI are required. Provider OAuth and protected key files are supplied by the account owner. No CI job uses live provider credentials. See [CI](CI.md) for the offline matrix and [installation](INSTALL.md) for accepted inputs and rollback limits.

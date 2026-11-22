@@ -2,14 +2,17 @@ import http.client
 from http.server import BaseHTTPRequestHandler
 import json
 import os
+from pathlib import Path
 import shutil
 import subprocess
 import tempfile
 import threading
 import unittest
 from contextlib import ExitStack
+from unittest.mock import patch
 
 from claude_gateway import AUTO, COUNT_TOKENS, Gateway, MESSAGES, MODELS, shared_decider
+from claude_onboard import launch, read_setup, save_setup
 from local_runtime import LocalServer
 from routing_policy import ASTRA, LUNA, SOL, TERRA, route_choice
 
@@ -31,6 +34,8 @@ def replies(body):
             block = TOOL
         elif "Bash" in tools:
             block = {**TOOL, "name": "Bash", "input": {"command": "printf JEV_CLAUDE_TOOL_OK"}}
+            if "Profile smoke" in str(body["messages"][0]["content"]):
+                block["input"] = {"command": 'printf "%s" "$JEV_PROFILE_SMOKE"'}
     tool_use = block["type"] == "tool_use"
     stop = "tool_use" if tool_use else "end_turn"
     if len(body["messages"]) == 1 and body["messages"][0]["content"] == "Hard at output limit":
@@ -98,6 +103,7 @@ class GatewayTests(unittest.TestCase):
                 self.wfile.write(data)
 
         fixture = stack.enter_context(LocalServer(("127.0.0.1", 0), Fixture))
+        self.fixture_port = fixture.server_port
         self.gateway = stack.enter_context(Gateway(
             0, CALLER_KEY, UPSTREAM_KEY, shared_decider(fixture.server_port, JUDGE_KEY),
             connect=lambda: http.client.HTTPConnection("127.0.0.1", fixture.server_port, timeout=5)))
@@ -211,6 +217,51 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(self.request(MESSAGES, body, headers=hints)[0], 200)
         self.assertEqual(self.requests[-1][2]["model"], MODELS[TERRA])
         self.assertEqual(len(self.dossiers), 2)
+
+    @unittest.skipUnless(shutil.which("claude"), "Claude Code not installed")
+    def test_onboard_launcher_uses_the_existing_profile_settings(self):
+        with tempfile.TemporaryDirectory() as root:
+            home = Path(root)
+            profile = home / "current-profile"
+            profile.mkdir()
+            profile_settings = profile / "settings.json"
+            original = json.dumps({"env": {
+                "JEV_PROFILE_SMOKE": "PROFILE_SETTINGS_LOADED",
+                "ANTHROPIC_BASE_URL": "http://127.0.0.1:1",
+                "ANTHROPIC_AUTH_TOKEN": "unrelated-profile-token",
+                "ANTHROPIC_API_KEY": "unrelated-profile-key",
+            }})
+            profile_settings.write_text(original, encoding="utf-8")
+            setup_path = home / ".jev-claude" / "settings.json"
+            saved = {"version": 1, "anthropic_key": UPSTREAM_KEY}
+            save_setup(setup_path, saved)
+            self.assertEqual(read_setup(setup_path), saved)
+            env = {key: value for key, value in os.environ.items() if key.upper() in
+                   ("PATH", "SYSTEMROOT", "WINDIR", "PATHEXT", "COMSPEC", "TMPDIR", "TEMP", "TMP")}
+            env.update({
+                "HOME": root, "USERPROFILE": root, "CLAUDE_CONFIG_DIR": str(profile),
+                "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1", "DISABLE_AUTOUPDATER": "1",
+                "CLAUDE_CODE_MAX_RETRIES": "0",
+                "ANTHROPIC_API_KEY": "unused-other-key",
+            })
+            def fixture_gateway(*args):
+                return Gateway(*args, connect=lambda: http.client.HTTPConnection(
+                    "127.0.0.1", self.fixture_port, timeout=5))
+
+            with patch.dict(os.environ, env, clear=True), patch("claude_onboard.Gateway", fixture_gateway):
+                self.assertEqual(launch(shutil.which("claude"),
+                                        ["--print", "--tools", "Bash", "--allowedTools", "Bash",
+                                         "--", "Profile smoke"],
+                                        UPSTREAM_KEY, self.gateway.decide, home), 0)
+                self.assertEqual(launch(shutil.which("claude"),
+                                        ["--continue", "--print", "--tools", "", "--", "Resume smoke"],
+                                        UPSTREAM_KEY, self.gateway.decide, home), 0)
+            self.assertEqual(profile_settings.read_text(encoding="utf-8"), original)
+            self.assertTrue(any("PROFILE_SETTINGS_LOADED" in str(message.get("content"))
+                                for _, _, body in self.requests for message in body.get("messages", [])
+                                if message.get("role") == "user"))
+            self.assertIn("Profile smoke", str(self.requests[-1][2]["messages"]))
+            self.assertIn("Resume smoke", str(self.requests[-1][2]["messages"]))
 
     @unittest.skipUnless(shutil.which("claude"), "Claude Code not installed")
     def test_installed_claude_code_routes_three_tiers_and_returns_a_tool_result(self):

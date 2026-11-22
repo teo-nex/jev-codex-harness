@@ -1,7 +1,36 @@
 # Jev model routing for Claude
 
-The Claude gateway is a routing preview in the same Jev repository. It runs
-alongside the existing Jev decision service. The gateway sends a bounded
+## Quick start for Claude Code
+
+Open this repository in Claude Code and ask **“Install Jev for Claude Code.”**
+Claude reads the repository instructions and prepares Jev for your current profile.
+If prompted for keys, run this from the checkout in a terminal:
+
+```sh
+./install.sh claude
+```
+
+On Windows use `install.cmd claude`. The first run reuses an available
+`ANTHROPIC_API_KEY` or asks for your Claude Console key in a hidden prompt.
+It reuses a running local Jev service if available. Otherwise it asks for a
+TypeSafe Jev key. Subsequent launches use the protected setup in
+`~/.jev-claude/settings.json` and start Claude Code with **Jev Claude Auto**
+selected. The local gateway starts and stops with that launch. Claude Code
+uses your existing settings, permissions, and sessions. Launching Claude Code
+normally still uses its usual authentication and routing.
+
+Use `./install.sh claude -- --continue` to resume the latest conversation for
+the current project. Add `--cwd /path/to/project` before the separator to open
+another workspace. To set up without opening a session, use `--setup-only`.
+Provide protected key files with `--anthropic-key-file` and `--jev-key-file`.
+For an alternate Jev decision provider add `--jev-provider openrouter`, or
+`--jev-provider compatible --jev-endpoint URL --jev-model MODEL_ID`.
+Use your profile or project settings for other Claude options. The launcher
+supplies its own per-session `--settings` file for the gateway.
+
+## Routing and billing
+
+The gateway sends a bounded
 description of the current task to that service and relays the original
 Anthropic Messages request to the Claude API using your Claude Console API key.
 Tool parameters, tool results, stream events, cache controls, and usage remain
@@ -23,7 +52,7 @@ account must have access to the selected models. Claude API billing and
 provider errors are handled by the upstream account. For the automatic alias,
 the gateway adapts thinking modes to the chosen model and effort level.
 
-## Start the local gateway
+## Run a fixed-port gateway for other clients
 
 1. Start the existing Jev decision service. The examples use its default port
    `4319` and the credential in its profile's
@@ -45,7 +74,7 @@ python3 server/claude_gateway.py \
 The listener binds to `127.0.0.1:4322`. Keep the Claude Console key on the gateway
 side. The gateway takes no Claude subscription login or OAuth tokens.
 
-## Claude Code CLI
+## Point Claude Code at a fixed-port gateway
 
 Set the gateway address and the local client's gateway key in the environment
 for one CLI launch. The example reads the key from the protected client file.

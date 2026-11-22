@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import subprocess
 import threading
 from urllib.parse import urlsplit
 
@@ -242,7 +243,7 @@ class ClaudeHandler(Handler):
             return MODELS[TERRA], "medium"
         try:
             decision = decision_from_answers(self.server.decide(state))
-        except (KeyError, ValueError, OSError, http.client.HTTPException):
+        except (KeyError, ValueError, OSError, RuntimeError, subprocess.SubprocessError, http.client.HTTPException):
             return MODELS[SOL], "medium"
         return MODELS[decision["model"]], decision["effort"]
 
