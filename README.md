@@ -2,6 +2,11 @@
 
 [![CI](https://github.com/teo-nex/jev-codex-harness/actions/workflows/ci.yml/badge.svg)](https://github.com/teo-nex/jev-codex-harness/actions/workflows/ci.yml)
 
+> **Claude Code integration: Alpha-Alpha.** This is an experimental preview
+> that requires your own Claude Console API key. The launcher and routing
+> were tested with Claude Code on macOS. Direct Claude Console inference and
+> Claude Desktop runtime verification are pending. [Claude Code quickstart](docs/CLAUDE.md)
+
 This project lets a coding agent set up Jev routing for **Codex**. Jev can choose
 a model and reasoning depth for a task when you select `jev/auto`; you can still
 select a model yourself. The repository includes an installer, an embedded
@@ -17,7 +22,7 @@ another coding environment. The full agent-first installer targets Codex.
 The current source release is [v0.1.0-alpha.1](https://github.com/teo-nex/jev-codex-harness/releases/tag/v0.1.0-alpha.1).
 See the [changelog](CHANGELOG.md) for routing changes and verification limits.
 
-## Install for Claude Code
+## Try Claude Code (Alpha-Alpha)
 
 Open this repository in your current Claude Code session and say **“Install
 Jev for Claude Code.”** The agent follows [CLAUDE.md](CLAUDE.md).

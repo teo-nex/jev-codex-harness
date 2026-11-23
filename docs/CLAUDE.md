@@ -1,5 +1,9 @@
 # Jev model routing for Claude
 
+> **Alpha-Alpha preview.** The current-profile launcher and routing have been
+> tested with Claude Code on macOS. Direct Claude Console inference and Claude
+> Desktop runtime verification are pending.
+
 ## Quick start for Claude Code
 
 Open this repository in Claude Code and ask **“Install Jev for Claude Code.”**
