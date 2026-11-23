@@ -1,5 +1,6 @@
 import http.client
 from http.server import BaseHTTPRequestHandler
+import io
 import json
 import os
 from pathlib import Path
@@ -8,11 +9,13 @@ import subprocess
 import tempfile
 import threading
 import unittest
-from contextlib import ExitStack
+from contextlib import ExitStack, redirect_stderr
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from claude_gateway import AUTO, COUNT_TOKENS, Gateway, MESSAGES, MODELS, shared_decider
-from claude_onboard import launch, read_setup, save_setup
+from claude_onboard import configure, launch, local_decider_ready, read_setup, save_setup
+from jev_server import Handler
 from local_runtime import LocalServer
 from routing_policy import ASTRA, LUNA, SOL, TERRA, route_choice
 
@@ -63,6 +66,39 @@ def replies(body):
     ]
     return "text/event-stream", b"".join(
         f"event: {name}\ndata: {json.dumps({'type': name, **data})}\n\n".encode() for name, data in events)
+
+
+class OnboardTests(unittest.TestCase):
+    def test_local_choice_requires_authentication_without_calling_upstream(self):
+        stack = self.enterContext(ExitStack())
+        router = stack.enter_context(LocalServer(("127.0.0.1", 0), Handler))
+        thread = threading.Thread(target=router.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True)
+        thread.start()
+        stack.callback(thread.join, 2)
+        stack.callback(router.shutdown)
+        path = Path(stack.enter_context(tempfile.TemporaryDirectory())) / "settings.json"
+        args = SimpleNamespace(anthropic_key_file=None, jev_provider=None, jev_key_file=None,
+                               jev_endpoint=None, jev_model=None)
+        stack.enter_context(patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-ant-api-fixture"}))
+        stack.enter_context(patch("jev_server.local_secret", return_value=JUDGE_KEY))
+        load_upstream_key = stack.enter_context(patch("jev_server.load_key"))
+        caller = stack.enter_context(patch("claude_onboard.local_secret", return_value=JUDGE_KEY))
+        stack.enter_context(patch("claude_onboard.local_decider_ready",
+                                 side_effect=lambda _port, key: local_decider_ready(router.server_port, key)))
+        ask = stack.enter_context(patch("claude_onboard.ask_key", return_value="fixture-typesafe"))
+
+        configure(args, path)
+        ask.assert_not_called()
+        self.assertEqual(read_setup(path)["decision"], {"provider": "local"})
+        caller.return_value = "stale-local-key"
+        with self.assertRaisesRegex(ValueError, "Could not authenticate to local Jev"):
+            configure(args, path)
+        self.assertEqual(read_setup(path)["decision"], {"provider": "local"})
+        fresh = path.with_name("fresh.json")
+        configure(args, fresh)
+        ask.assert_called_once_with("TypeSafe Jev API key")
+        self.assertEqual(read_setup(fresh)["decision"]["provider"], "typesafe")
+        load_upstream_key.assert_not_called()
 
 
 class GatewayTests(unittest.TestCase):
@@ -172,20 +208,32 @@ class GatewayTests(unittest.TestCase):
         self.assertNotIn("x-claude-code-request-class", self.requests[-1][1])
         self.assertEqual(self.dossiers, [])
         self.refuse = True
-        self.assertEqual(self.request(MESSAGES, body)[0], 200)
+        with redirect_stderr(io.StringIO()) as stderr:
+            for _ in range(2):
+                self.assertEqual(self.request(MESSAGES, body)[0], 200)
+            self.assertEqual(stderr.getvalue().count("Temporarily using Opus"), 1)
+            self.refuse = False
+            self.assertEqual(self.request(MESSAGES, body)[0], 200)
+            self.assertEqual(self.requests[-1][2]["model"], MODELS[LUNA])
+            self.refuse = True
+            self.assertEqual(self.request(MESSAGES, body)[0], 200)
+            self.assertEqual(stderr.getvalue().count("Temporarily using Opus"), 2)
         self.assertEqual(self.requests[-1][2]["model"], MODELS[SOL])
         self.assertEqual(self.requests[-1][2]["output_config"]["effort"], "medium")
 
     def test_auto_translates_unsupported_thinking_modes(self):
-        for task, mode, expected in (("Tiny", "disabled", "disabled"),
-                                     ("Routine", "disabled", "between_tools"),
-                                     ("Hard", "disabled", "adaptive"),
-                                     ("Hard", "enabled", "adaptive")):
-            with self.subTest(task=task, mode=mode):
+        for task, thinking, expected in (
+            ("Tiny", {"type": "disabled"}, {"type": "disabled"}),
+            ("Routine", {"type": "disabled"}, {"type": "between_tools"}),
+            ("Hard", {"type": "disabled"}, {"type": "adaptive"}),
+            ("Hard", {"type": "enabled", "budget_tokens": 2048, "display": "summarized"},
+             {"type": "adaptive", "display": "summarized"}),
+        ):
+            with self.subTest(task=task, thinking=thinking):
                 body = {"model": AUTO, "messages": [{"role": "user", "content": task}],
-                        "thinking": {"type": mode}}
+                        "thinking": thinking}
                 self.assertEqual(self.request(MESSAGES, body)[0], 200)
-                self.assertEqual(self.requests[-1][2]["thinking"], {"type": expected})
+                self.assertEqual(self.requests[-1][2]["thinking"], expected)
 
     def test_streamed_tool_continuation_keeps_the_route_and_thinking(self):
         history = [{"role": "user", "content": "Hard"}]

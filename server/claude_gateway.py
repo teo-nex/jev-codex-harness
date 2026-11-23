@@ -3,12 +3,14 @@
 
 import argparse
 from collections import OrderedDict
+from contextlib import suppress
 import http.client
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import threading
 from urllib.parse import urlsplit
 
@@ -107,6 +109,15 @@ class Gateway(LocalServer):
         self.connect = connect or (lambda: http.client.HTTPSConnection("api.anthropic.com", timeout=120))
         self._continuations = OrderedDict()
         self._lock = threading.Lock()
+        self._decision_failed = False
+
+    def note_decision(self, failed):
+        with self._lock:
+            if failed and not self._decision_failed:
+                with suppress(OSError, ValueError):
+                    print("Jev Claude: decision service unavailable. Temporarily using Opus 5.5 at medium effort.",
+                          file=sys.stderr)
+            self._decision_failed = failed
 
     def remember_tool(self, block, route):
         if not isinstance(block, dict) or block.get("type") != "tool_use":
@@ -226,7 +237,10 @@ class ClaudeHandler(Handler):
                     if (mode == "enabled"
                             or mode == "disabled" and body["model"] == MODELS[SOL]
                             or mode in ("disabled", "between_tools") and effort in ADAPTIVE_AT_HIGH_EFFORT):
-                        body["thinking"] = {"type": "adaptive"}
+                        adaptive = {"type": "adaptive"}
+                        if "display" in thinking:
+                            adaptive["display"] = thinking["display"]
+                        body["thinking"] = adaptive
                     elif mode == "disabled" and body["model"] == MODELS[TERRA]:
                         body["thinking"] = {"type": "between_tools"}
         self._relay(url.geturl(), body, route)
@@ -244,7 +258,9 @@ class ClaudeHandler(Handler):
         try:
             decision = decision_from_answers(self.server.decide(state))
         except (KeyError, ValueError, OSError, RuntimeError, subprocess.SubprocessError, http.client.HTTPException):
+            self.server.note_decision(failed=True)
             return MODELS[SOL], "medium"
+        self.server.note_decision(failed=False)
         return MODELS[decision["model"]], decision["effort"]
 
     def _main_prompt_id(self):

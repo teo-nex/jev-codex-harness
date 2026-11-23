@@ -72,7 +72,9 @@ def save_setup(path, config):
         Path(temporary).unlink(missing_ok=True)
 
 
-def local_decider_ready(port):
+def local_decider_ready(port, key):
+    if not valid_key(key):
+        return False
     connection = http.client.HTTPConnection("127.0.0.1", port, timeout=1)
     try:
         connection.request("GET", "/health")
@@ -80,7 +82,18 @@ def local_decider_ready(port):
         if response.status != 200:
             return False
         health = json.loads(response.read(8192))
-        return health.get("service") == "jev-router" and health.get("auth_configured") is True
+        if health.get("service") != "jev-router" or health.get("auth_configured") is not True:
+            return False
+        # /ask authenticates before rejecting the empty request without calling an upstream.
+        connection.close()
+        connection.request("POST", "/ask", body="{}", headers={
+            "Authorization": "Bearer " + key,
+            "Content-Type": "application/json",
+        })
+        response = connection.getresponse()
+        return response.status == 400 and json.loads(response.read(8192)) == {
+            "error": {"message": "state must be a string, object or array"}
+        }
     except (OSError, ValueError, AttributeError, http.client.HTTPException):
         return False
     finally:
@@ -100,22 +113,24 @@ def configure(args, path):
         raise ValueError("Enter a Claude Console API key. Claude Pro or Max sign-in is used by ordinary Claude launches.")
 
     decision = saved.get("decision", {})
+    local_key = None
     if args.jev_provider or args.jev_key_file:
         provider = args.jev_provider or "typesafe"
         decision_environment(provider, args.jev_endpoint, args.jev_model)
         key = read_key(args.jev_key_file) if args.jev_key_file else ask_key("Jev decision API key")
         decision = {"provider": provider, "endpoint": args.jev_endpoint, "model": args.jev_model, "key": key}
-    elif not decision:
-        if local_secret() and local_decider_ready(4319):
+    elif not decision or decision["provider"] == "local":
+        local_key = local_secret()
+        if local_decider_ready(4319, local_key):
             decision = {"provider": "local"}
+        elif decision:
+            raise ValueError("Could not authenticate to local Jev. Check the running profile or supply a Jev API key.")
         else:
             decision = {"provider": "typesafe", "key": ask_key("TypeSafe Jev API key")}
 
     provider = decision["provider"]
     if provider == "local":
-        key = local_secret()
-        if not key or not local_decider_ready(4319):
-            raise ValueError("The configured local Jev service is unavailable. Start it or supply a Jev API key.")
+        key = local_key
         decide = shared_decider(4319, key)
     else:
         endpoint, model = decision.get("endpoint"), decision.get("model")

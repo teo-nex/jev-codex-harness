@@ -6,6 +6,7 @@ import math
 import os
 from pathlib import Path
 import re
+import tempfile
 import time
 try:
     from .portable_lock import locked_file
@@ -163,11 +164,13 @@ class Ladder:
         return value
 
     def _save(self, value):
-        tmp = self.path.with_name(self.path.name + ".tmp-" + str(os.getpid()))
-        with tmp.open("x") as output:
-            os.chmod(tmp, 0o600)
-            json.dump(value, output, separators=(",", ":"))
-        os.replace(tmp, self.path)
+        fd, tmp = tempfile.mkstemp(prefix=self.path.name + ".tmp-", dir=self.path.parent)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as output:
+                json.dump(value, output, separators=(",", ":"))
+            os.replace(tmp, self.path)
+        finally:
+            Path(tmp).unlink(missing_ok=True)
 
     def _with_state(self, operation):
         with locked_file(self.lock):

@@ -16,9 +16,9 @@ If prompted for keys, run this from the checkout in a terminal:
 
 On Windows use `install.cmd claude`. The first run reuses an available
 `ANTHROPIC_API_KEY` or asks for your Claude Console key in a hidden prompt.
-It reuses a running local Jev service if available. Otherwise it asks for a
-TypeSafe Jev key. Subsequent launches use the protected setup in
-`~/.jev-claude/settings.json` and start Claude Code with **Jev Claude Auto**
+It checks the local credential before reusing a running local Jev service.
+Otherwise it asks for a TypeSafe Jev key. Subsequent launches use the protected
+setup in `~/.jev-claude/settings.json` and start Claude Code with **Jev Claude Auto**
 selected. The local gateway starts and stops with that launch. Claude Code
 uses your existing settings, permissions, and sessions. Launching Claude Code
 normally still uses its usual authentication and routing.
@@ -48,10 +48,10 @@ in Anthropic format.
 | Manual selection | Claude Fable 5.2 |
 
 The `claude-jev-auto` alias uses the first three models. On a technical Jev
-decision error it uses Opus at medium effort. Explicit model IDs bypass Jev's
-decision and keep the caller's thinking settings. Within a running gateway,
-a tool result with a recognized call ID reuses the model and effort that
-issued the call so the tool continues with the same model. The upstream
+decision error it warns in the terminal and uses Opus at medium effort.
+Explicit model IDs bypass Jev's decision and keep the caller's thinking
+settings. Within a running gateway, a tool result with a recognized call ID
+reuses the model and effort that issued the call. The upstream
 account must have access to the selected models. Claude API billing and
 provider errors are handled by the upstream account. For the automatic alias,
 the gateway adapts thinking modes to the chosen model and effort level.

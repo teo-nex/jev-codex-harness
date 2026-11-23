@@ -1,4 +1,5 @@
 """Provider priority must preserve one thread and advance only on failed routes."""
+import os
 import tempfile
 from pathlib import Path
 import unittest
@@ -13,6 +14,18 @@ CONFIG = {"plus_connection_id": "plus", "gemini_connection_ids": ["g1", "g2", "g
 
 
 class LadderTests(unittest.TestCase):
+    def test_stale_temporary_state_does_not_block_saving(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "state.json"
+            stale = path.with_name(f"{path.name}.tmp-{os.getpid()}")
+            stale.write_text("incomplete")
+            ladder = Ladder(CONFIG, path)
+            route = ladder.route("thread", "gpt-6-luna", "low")
+            self.assertTrue(ladder.advance("thread", route, "quota"))
+            self.assertEqual(Ladder(CONFIG, path).route("thread", "gpt-6-luna", "low")["account"], "g1")
+            self.assertEqual(list(path.parent.glob("state.json.tmp-*")), [stale])
+            self.assertEqual(stale.read_text(), "incomplete")
+
     def test_wally_follows_gonka_deepseek_and_precedes_main(self):
         config = {**CONFIG, "wally_model": "wally/glm-5.3-flash"}
         with tempfile.TemporaryDirectory() as directory:
