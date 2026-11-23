@@ -1,10 +1,12 @@
 """Native Codex lifecycle against a synthetic loopback provider, no credentials."""
 
 import asyncio
+from contextlib import suppress
 import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -150,16 +152,28 @@ async def exercise_tui(executable, work, model, requests):
         raise AssertionError(output.decode(errors="replace")[-12000:])
     finally:
         # The real TUI consumes Ctrl-C; the wrapper then reaps its own backend.
-        if process.returncode is None:
-            os.write(master, b"\x03")
-            await asyncio.sleep(0.1)
-            os.write(master, b"\x03")
         try:
-            await asyncio.wait_for(process.wait(), 10)
-        except asyncio.TimeoutError:
-            process.terminate()
-            await process.wait()
-        os.close(master)
+            if process.returncode is None:
+                with suppress(OSError):
+                    os.write(master, b"\x03")
+                    await asyncio.sleep(0.1)
+                    os.write(master, b"\x03")
+            try:
+                await asyncio.wait_for(process.wait(), 10)
+            except asyncio.TimeoutError:
+                # asyncio.run handles SIGINT by cancelling the wrapper's task.
+                # That lets its finally blocks reap the two separate Codex groups.
+                with suppress(ProcessLookupError):
+                    process.send_signal(signal.SIGINT)
+                try:
+                    await asyncio.wait_for(process.wait(), 15)
+                except asyncio.TimeoutError:
+                    with suppress(ProcessLookupError):
+                        process.kill()
+                    await process.wait()
+                    raise AssertionError("The idle-compaction wrapper did not shut down after SIGINT.")
+        finally:
+            os.close(master)
 
 
 def run_case(executable, template, model, exercise_case=exercise):
