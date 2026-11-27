@@ -1,3 +1,4 @@
+import { CODEX_SESSION_HEADERS } from "./codex-session-headers.mjs";
 import http from "node:http";
 import { usesNativeChatReasoning } from "./chat-reasoning.mjs";
 import {
@@ -1066,6 +1067,18 @@ function normalizeBody(buffer, contentType, route) {
     };
   }
 
+  // Jev relays the canonical replay to the executing model. Keep Codex
+  // message phases and tool declarations on this internal Responses hop.
+  if (model.slug === "jev/auto" && provider.generic === true) {
+    return {
+      body: Buffer.from(JSON.stringify(payload), "utf8"),
+      model,
+      provider,
+      endpoint: provider,
+      payload,
+    };
+  }
+
   // Responses providers get one checked boundary here. The request remains a
   // Responses request, but legacy aliases are normalized before any provider
   // sees it and the original payload remains available for retries.
@@ -1532,6 +1545,7 @@ function upstreamHeaders(requestHeaders, body, apiKey, provider, extraHeaders = 
     if (HOP_BY_HOP_HEADERS.has(lower) || lower === "authorization" || lower === "x-api-key") continue;
     if (provider.protocol === "vertex" && lower === "anthropic-version") continue;
     if (provider.authProfile === "github-copilot" && providerIdentityHeaders.has(lower)) continue;
+    if (provider.id === "jev" && provider.generic === true && CODEX_SESSION_HEADERS.has(lower)) continue;
     if (lower.startsWith("x-msh-") || lower.startsWith("x-codex-")) continue;
     if (lower.startsWith("x-openai-") || lower === "chatgpt-account-id") continue;
     if (lower === "originator" || lower === "user-agent" || lower === "accept-encoding") {
@@ -1766,6 +1780,7 @@ async function handleRequest(request, response) {
           undefined,
           normalized.provider,
         ),
+        codexSessionHeaders: normalized.model.slug === "jev/auto" ? request.headers : undefined,
         body: normalized.body,
         signal: controller.signal,
         // A model generation lives as long as its caller. Discovery and the

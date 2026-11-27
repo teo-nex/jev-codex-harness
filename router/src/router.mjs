@@ -1,3 +1,4 @@
+import { CODEX_SESSION_HEADERS } from "./codex-session-headers.mjs";
 import { readFileSync } from "node:fs";
 import http from "node:http";
 import { createHash, randomUUID } from "node:crypto";
@@ -675,22 +676,12 @@ function recordObservedUsage(fields, diagnostics) {
 }
 
 const FORWARD_HEADERS = new Set([
+  ...CODEX_SESSION_HEADERS,
   "authorization",
   "chatgpt-account-id",
   "openai-beta",
-  "originator",
-  "session_id",
-  "session-id",
-  "thread-id",
   "traceparent",
   "tracestate",
-  "x-client-request-id",
-  "x-codex-beta-features",
-  "x-codex-installation-id",
-  "x-codex-parent-thread-id",
-  "x-codex-turn-metadata",
-  "x-codex-turn-state",
-  "x-codex-window-id",
   "x-oai-attestation",
   "x-openai-internal-codex-responses-lite",
   "x-openai-subagent",
@@ -987,20 +978,26 @@ function normalizeNativePromptCacheCompatibility(payload) {
   return payload;
 }
 
-function routedHeaders() {
-  return {
+function routedHeaders(jevRequest) {
+  const headers = {
     Authorization: `Bearer ${INTERNAL_KEY}`,
     "Content-Type": "application/json",
     "Accept-Encoding": "identity",
     "User-Agent": `codex-router/${VERSION}`,
   };
+  for (const name of CODEX_SESSION_HEADERS) {
+    const value = jevRequest?.headers[name];
+    if (typeof value === "string" && value) headers[name] = value;
+  }
+  return headers;
 }
 
 // DeepSeek's current model already speaks Codex's wire protocol. The shared
 // API forwarder still owns credentials and upstream transport; bypass only
 // LiteLLM, whose unknown-model fallback simulates native Responses streaming.
+// Jev also uses the forwarder directly to retain Codex session headers.
 function routedResponsesTarget(route) {
-  return `${usesDeepSeekResponses(route) ? API_BASE : GATEWAY_BASE}/responses`;
+  return `${(usesDeepSeekResponses(route) || requiresCanonicalReplay(route)) ? API_BASE : GATEWAY_BASE}/responses`;
 }
 
 // LiteLLM translates Codex Responses requests into Chat Completions only after
@@ -2933,7 +2930,7 @@ async function summarizeWith(
   // reason for as long as a turn, so it uses the same long-idle pool.
   const upstream = await fetchForRoute(route, routedResponsesTarget(route), {
     method: "POST",
-    headers: routedHeaders(),
+    headers: routedHeaders(requiresCanonicalReplay(route) ? request : undefined),
     body: serialized,
     signal,
   });
@@ -3784,7 +3781,7 @@ async function buildRoutedRequest({ request, payload, route, agedInput }) {
   normalizeAutoToolChoice(routed, route);
   // Native OpenAI traffic keeps client_metadata; routed providers do not
   // consume it and the strict ones reject the unknown field.
-  delete routed.client_metadata;
+  if (!requiresCanonicalReplay(route)) delete routed.client_metadata;
   // Codex sends reasoning as an object. LiteLLM's Ollama path tests that value
   // for membership of a string set, which raises on a dict and fails the whole
   // turn -- 210 of them here before this was caught. Ollama has no
@@ -3798,7 +3795,7 @@ async function buildRoutedRequest({ request, payload, route, agedInput }) {
   return {
     body: Buffer.from(JSON.stringify(routed), "utf8"),
     target: routedResponsesTarget(route),
-    headers: routedHeaders(),
+    headers: routedHeaders(requiresCanonicalReplay(route) ? request : undefined),
     // The exact mode used while constructing this body. Failover compares it
     // with the immutable source contract as well as live state immediately
     // before send, so transient sidecar changes cannot validate stale bytes.

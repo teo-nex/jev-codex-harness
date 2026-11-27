@@ -1,7 +1,7 @@
 """Compact Jev contract: model, effort, lease and mandatory-frontier policy."""
 import math
 
-POLICY_VERSION = "split-v17-terra6.1-default-sol6.2-hard"
+POLICY_VERSION = "split-v18-terra6.1-default-sol6.2-independent-effort"
 LUNA, TERRA, SOL, ASTRA = "gpt-6-luna", "gpt-6.1-terra", "gpt-6.2-sol", "gpt-6.2-astra"
 TIERS = (LUNA, TERRA, SOL, ASTRA)
 EFFORTS = ["low", "medium", "high", "xhigh", "max"]
@@ -192,10 +192,10 @@ def decision_from_answers(answers):
         model_uncertain = model_probs["sol"] > 0.10
     if selected_model in (LUNA, TERRA) and (model_uncertain or
                                      astra_conf is None or astra_conf < 0.90):
+        # Tier uncertainty raises model capability while the independent
+        # reasoning decision remains stable.
         selected_model = SOL
         gate = "confidence_hold"
-        if EFFORTS.index(effort) < EFFORTS.index("high"):
-            effort = "high"
     return {
         "model": selected_model,
         "base_model": MODEL_IDS[model_choice],

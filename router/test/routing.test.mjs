@@ -9412,9 +9412,12 @@ test("a long routed conversation is replayed as a window instead of in full", as
 });
 
 test("jev/auto receives the complete canonical replay for its executing model", async () => {
-  const gatewayBodies = [];
-  const gateway = await mockServer(async (request, response) => {
-    gatewayBodies.push(await bodyJson(request));
+  const jevBodies = [];
+  const jevHeaders = [];
+  const jev = await mockServer(async (request, response) => {
+    jevHeaders.push(request.headers);
+    response.setHeader("x-codex-turn-state", "next-turn-state");
+    jevBodies.push(await bodyJson(request));
     json(response, 200, { output: [{ type: "message", role: "assistant", content: "ok" }] });
   });
   const testRoot = mkdtempSync(path.join(os.tmpdir(), "routing-jev-canonical-"));
@@ -9431,7 +9434,7 @@ test("jev/auto receives the complete canonical replay for its executing model", 
     providers: [{
       id: "jev",
       displayName: "Jev Router",
-      baseUrl: "http://127.0.0.1:4319/v1",
+      baseUrl: `http://127.0.0.1:${jev.port}/v1`,
       adapter: "openai-responses",
       headers: {},
       allowPrivate: true,
@@ -9458,16 +9461,28 @@ test("jev/auto receives the complete canonical replay for its executing model", 
       compHash: "jev-auto-test-v1",
     }],
   })}\n`);
-  const routerPort = await openPort();
-  const router = run("router.mjs", {
-    CODEX_ROUTER_PORT: String(routerPort),
-    CODEX_ROUTER_GATEWAY_BASE_URL: `http://127.0.0.1:${gateway.port}/v1`,
-    CODEX_ROUTER_CONVERSATION_WINDOW: "1",
-    CODEX_ROUTER_CONVERSATION_WINDOW_KB: "64",
-    CODEX_ROUTER_QUIET: "1",
+  const fixtureEnv = {
+    CODEX_HOME: testRoot,
     MODEL_ROUTER_STATE_DIR: stateDir,
     MODEL_ROUTER_GENERIC_PROVIDERS: providersFile,
     MODEL_ROUTER_USER_MODELS: userModelsFile,
+  };
+  execFileSync(process.execPath, [path.join(root, "../server/configure-auth.mjs")], {
+    env: { ...process.env, ...fixtureEnv },
+  });
+  const apiPort = await openPort();
+  const forwarder = run("api-forwarder.mjs", {
+    ...fixtureEnv,
+    MODEL_ROUTER_API_PORT: String(apiPort),
+  });
+  const routerPort = await openPort();
+  const router = run("router.mjs", {
+    CODEX_ROUTER_PORT: String(routerPort),
+    CODEX_ROUTER_API_BASE_URL: `http://127.0.0.1:${apiPort}/v1`,
+    CODEX_ROUTER_CONVERSATION_WINDOW: "1",
+    CODEX_ROUTER_CONVERSATION_WINDOW_KB: "64",
+    CODEX_ROUTER_QUIET: "1",
+    ...fixtureEnv,
   });
   const oldToolOutput = `XMESH result: ${"x".repeat(40_000)}`;
   const input = [
@@ -9487,12 +9502,16 @@ test("jev/auto receives the complete canonical replay for its executing model", 
   const promptCacheKey = "stable-jev-session-cache-key";
 
   try {
+    await waitFor(`http://127.0.0.1:${apiPort}/health`, forwarder, { Authorization: `Bearer ${INTERNAL_KEY}` });
     await waitFor(`${routerBase(routerPort)}/models`, router);
     const response = await fetch(`${routerBase(routerPort)}/responses`, {
       method: "POST",
       headers: {
         Authorization: "Bearer CODEX_CALLER_SECRET",
         "Content-Type": "application/json",
+        session_id: "test-session",
+        "x-codex-turn-state": "prior-turn-state",
+        "x-codex-router-exact-route": "0",
       },
       body: JSON.stringify({
         model: "jev/auto",
@@ -9502,10 +9521,14 @@ test("jev/auto receives the complete canonical replay for its executing model", 
       }),
     });
     assert.equal(response.status, 200, await response.text());
-    assert.equal(gatewayBodies.length, 1);
-    assert.equal(gatewayBodies[0].model, "jev-auto");
-    assert.equal(gatewayBodies[0].prompt_cache_key, promptCacheKey);
-    assert.deepEqual(gatewayBodies[0].input, input);
+    assert.equal(response.headers.get("x-codex-turn-state"), "next-turn-state");
+    assert.equal(jevHeaders[0].session_id, "test-session");
+    assert.equal(jevHeaders[0]["x-codex-turn-state"], "prior-turn-state");
+    assert.equal(jevHeaders[0]["x-codex-router-exact-route"], undefined);
+    assert.equal(jevBodies.length, 1);
+    assert.equal(jevBodies[0].model, "auto");
+    assert.equal(jevBodies[0].prompt_cache_key, promptCacheKey);
+    assert.deepEqual(jevBodies[0].input, input);
 
     const [event] = await waitForUsageEvents(stateDir, 1, router);
     assert.equal(event.toolResultsAged ?? 0, 0);
@@ -9514,7 +9537,8 @@ test("jev/auto receives the complete canonical replay for its executing model", 
     assert.equal(event.conversationWindowBytesSaved ?? 0, 0);
   } finally {
     await stopChild(router);
-    await closeServer(gateway.server);
+    await stopChild(forwarder);
+    await closeServer(jev.server);
     rmSync(testRoot, { recursive: true, force: true });
   }
 });

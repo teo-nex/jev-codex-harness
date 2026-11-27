@@ -12,9 +12,10 @@ ordinary implementation, tests, tools and writing; Luna 6 handles only tiny
 self-contained tasks. Astra is manual-only (or an explicit operator override).
 Jev chooses capability, reasoning depth and route lease independently. The
 legacy astra_policy category now raises hard work to Sol, never Astra.
-Every pair uses standard speed. Uncertainty requiring stronger capability promotes to Sol/high.
+Every pair uses standard speed. Uncertainty requiring stronger capability
+promotes to Sol and retains the selected effort.
 There are no keyword overrides or production target proportions.
-Technical Jev failures remain fail-open to sol @medium and are logged separately.
+Technical Jev failures fall back to Sol. Timeouts retain its cached or requested effort.
 
 Measured routing (v11): every user turn, error, compaction and material tool-chain
 transition is judged independently. A Jev-selected lease may reuse the exact
@@ -117,6 +118,20 @@ DEBUG_PATH = os.path.join(STATE, "jev-router.debug")
 # removed from replayed history, including legacy trailing signatures.
 SIGNATURE_PATH = os.path.join(STATE, "jev-router.signature")
 LOG_PATH = os.path.join(STATE, "jev-router-live.jsonl")
+
+CODEX_SESSION_HEADERS = (
+    "originator",
+    "session_id",
+    "session-id",
+    "thread-id",
+    "x-client-request-id",
+    "x-codex-beta-features",
+    "x-codex-installation-id",
+    "x-codex-parent-thread-id",
+    "x-codex-turn-metadata",
+    "x-codex-turn-state",
+    "x-codex-window-id",
+)
 
 LISTEN = ("127.0.0.1", int(os.environ.get("JEV_LISTEN_PORT", "4319")))
 ROUTER = ("127.0.0.1", 4202)
@@ -2325,6 +2340,10 @@ class Handler(BaseHTTPRequestHandler):
                     decision_source = "jev"
                 except Exception as exc:
                     model, effort, speed, gate = SOL, "medium", "default", f"jev_error:{type(exc).__name__}"
+                    if isinstance(exc, (subprocess.TimeoutExpired, TimeoutError)):
+                        previous = (affinity or {}).get("models", {}).get(route_label(SOL)[0], {})
+                        requested = (payload.get("reasoning") or {}).get("effort")
+                        effort = previous.get("effort") or (requested if requested in EFFORTS else effort)
                     decision_source = "technical_fallback"
                 jev_ms = int((time.time() - jt0) * 1000)
             else:
@@ -2759,6 +2778,7 @@ class Handler(BaseHTTPRequestHandler):
         reopens, when it announced one.
         """
         attempt_started = time.monotonic()
+        native_session = not external and model in TIERS
         try:
             wire_payload = external_tool_search_payload(payload) if external else payload
         except ValueError:
@@ -2834,6 +2854,11 @@ class Handler(BaseHTTPRequestHandler):
                     headers["X-OmniRoute-Connection"] = external["account"]
             else:
                 headers["x-codex-router-canonical-replay"] = "1"
+            if native_session:
+                for name in CODEX_SESSION_HEADERS:
+                    value = getattr(self, "headers", {}).get(name)
+                    if value and "\r" not in value and "\n" not in value:
+                        headers[name] = value
             if exact_route and not external:
                 # This request is already one hop of Jev's bounded recovery
                 # plan. Disable the parent router's own cross-model failover so
@@ -2849,6 +2874,7 @@ class Handler(BaseHTTPRequestHandler):
             attempt["headers_ms"] = int((time.monotonic() - attempt_started) * 1000)
             status = resp.status
             attempt["http_status"] = status
+            turn_state = resp.getheader("x-codex-turn-state") if native_session and status == 200 else None
             ctype = (resp.getheader("Content-Type") or "").strip()
             # The local caller edge sets NO Content-Type on SSE streams. For a
             # streaming request, a 200 response IS an SSE stream: force the
@@ -2936,6 +2962,8 @@ class Handler(BaseHTTPRequestHandler):
                             self.send_response(status)
                             self.send_header("Content-Type", "text/event-stream; charset=utf-8")
                             self.send_header("Transfer-Encoding", "chunked")
+                            if turn_state and "\r" not in turn_state and "\n" not in turn_state:
+                                self.send_header("x-codex-turn-state", turn_state)
                             self.end_headers()
                             stream_started = True
                         self.wfile.write(
@@ -3094,6 +3122,8 @@ class Handler(BaseHTTPRequestHandler):
                         data = json.dumps(assembled).encode("utf-8")
                 self.send_response(status)
                 self.send_header("Content-Type", out_ctype)
+                if turn_state and "\r" not in turn_state and "\n" not in turn_state:
+                    self.send_header("x-codex-turn-state", turn_state)
                 self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
                 self.wfile.write(data)

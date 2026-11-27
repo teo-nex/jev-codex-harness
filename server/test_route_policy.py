@@ -129,9 +129,18 @@ class SplitPolicy(unittest.TestCase):
         answer["model"]["confidence"] = 0.89
         decision = decision_from_answers(answer)
         self.assertEqual((decision["model"], decision["effort"], decision["gate"]),
-                         (jev.SOL, "high", "confidence_hold"))
+                         (jev.SOL, "medium", "confidence_hold"))
         with self.assertRaises(ValueError):
             route_choice("gpt-5.6-terra", "medium")
+
+    def test_capability_guard_keeps_the_independent_effort(self):
+        for effort in jev.EFFORTS:
+            with self.subTest(effort=effort):
+                answer = self.answer(jev.TERRA, effort)
+                answer["model"]["confidence"] = 0.89
+                decision = decision_from_answers(answer)
+                self.assertEqual((decision["model"], decision["effort"], decision["gate"]),
+                                 (jev.SOL, effort, "confidence_hold"))
 
     def test_terra_luna_ambiguity_does_not_pay_for_sol(self):
         answer = self.answer(jev.TERRA, "medium")
@@ -143,7 +152,7 @@ class SplitPolicy(unittest.TestCase):
         answer["model"]["probabilities"] = {"luna": 0.0, "terra": 0.74, "sol": 0.26}
         decision = decision_from_answers(answer)
         self.assertEqual((decision["model"], decision["effort"], decision["gate"]),
-                         (jev.SOL, "high", "confidence_hold"))
+                         (jev.SOL, "medium", "confidence_hold"))
         answer["model"]["probabilities"] = {"luna": 0.16, "terra": 0.84, "sol": 0.0}
         answer["astra_policy"]["confidence"] = 0.8
         self.assertEqual(decision_from_answers(answer)["model"], jev.SOL)

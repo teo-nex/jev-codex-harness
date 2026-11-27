@@ -86,6 +86,7 @@ class Edge(BaseHTTPRequestHandler):
             data = type(self).body
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
+            self.send_header("x-codex-turn-state", "fixture-next-state")
         declared = len(data) + (1 if type(self).disconnect_after is not None else 0)
         self.send_header("Content-Length", str(declared))
         self.end_headers()
@@ -148,7 +149,7 @@ class TandemHandoff(unittest.TestCase):
             server.shutdown()
             server.server_close()
 
-    def call(self, stream=False, **overrides):
+    def call(self, stream=False, request_headers=None, **overrides):
         self.logged.clear()
         payload = {
             "model": "auto",
@@ -163,10 +164,12 @@ class TandemHandoff(unittest.TestCase):
         request = urllib.request.Request(
             f"http://127.0.0.1:{self.server.server_address[1]}/v1/responses",
             data=json.dumps(payload).encode(),
-            headers={"Content-Type": "application/json", "Authorization": "Bearer fixture-local"},
+            headers={"Content-Type": "application/json", "Authorization": "Bearer fixture-local",
+                     **(request_headers or {})},
         )
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
+                self.turn_state = response.headers.get("x-codex-turn-state")
                 result = response.status, response.read()
         except urllib.error.HTTPError as error:
             body = error.read()
@@ -174,6 +177,24 @@ class TandemHandoff(unittest.TestCase):
             result = error.code, body
         self.assertTrue(self.logged.wait(2), "wait for post-response state and telemetry")
         return result
+
+    def test_native_timeout_preserves_effort_and_session_headers(self):
+        with mock.patch.object(jev, "native_dry", return_value=None), \
+             mock.patch.object(jev, "call_jev_routed", side_effect=jev.subprocess.TimeoutExpired("fixture", 4)):
+            for stream in (False, True):
+                with self.subTest(stream=stream):
+                    status, _ = self.call(
+                        stream=stream,
+                        reasoning={"effort": "high"},
+                        request_headers={"session_id": "fixture-session",
+                                         "x-codex-turn-state": "fixture-prior-state"},
+                    )
+                    self.assertEqual(status, 200)
+                    self.assertEqual(Edge.attempts[-1], (jev.SOL, "high"))
+                    headers = {name.lower(): value for name, value in Edge.headers[-1].items()}
+                    self.assertEqual(headers["session_id"], "fixture-session")
+                    self.assertEqual(headers["x-codex-turn-state"], "fixture-prior-state")
+                    self.assertEqual(self.turn_state, "fixture-next-state")
 
     def raw_post(self, content_length=None, transfer_encoding=None, body=b"{}"):
         """Send framing that urllib.request intentionally normalises for us."""

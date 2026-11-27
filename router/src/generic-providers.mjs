@@ -1,3 +1,4 @@
+import { CODEX_SESSION_HEADERS } from "./codex-session-headers.mjs";
 import { promises as dns } from "node:dns";
 import { isIP } from "node:net";
 import path from "node:path";
@@ -422,13 +423,23 @@ async function boundedResponseBody(response, maxBytes = MAX_RESPONSE_BYTES) {
 export async function requestGenericProvider(
   id,
   requestPath,
-  { fetchImpl = undiciFetch, lookup = lookupHost, timeoutMs = 10_000, ...init } = {},
+  { fetchImpl = undiciFetch, lookup = lookupHost, timeoutMs = 10_000, codexSessionHeaders, ...init } = {},
 ) {
   const provider = getGenericProvider(id);
   if (!provider.enabled) throw unavailable(`Generic provider ${provider.id} is disabled.`);
   const endpoint = destinationUrl(provider, requestPath);
   await validateResolvedDestination(endpoint, provider, lookup);
   const requestHeaders = safeHeaderEntries(init.headers);
+  if (provider.id === "jev" && endpoint.protocol === "http:" &&
+      endpoint.hostname === "127.0.0.1" && provider.allowPrivate && provider.credentialRef &&
+      codexSessionHeaders) {
+    for (const name of CODEX_SESSION_HEADERS) {
+      const value = codexSessionHeaders[name];
+      if (typeof value === "string" && value && value.length <= 4096 && !/[\r\n]/.test(value)) {
+        requestHeaders[name] = value;
+      }
+    }
+  }
   // Static provider headers are operator-owned routing metadata. A caller can
   // add ordinary content-negotiation headers, but cannot replace tenant or
   // gateway selection chosen in the protected provider descriptor.
